@@ -525,6 +525,21 @@ def load_mapping_file(mapping_file):
         # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
         arrival_time = pytz.timezone('America/Vancouver').localize(arrival_time)
 
+        try:
+            first_trop_time = datetime.datetime.strptime(row["First_trop_result_time"], "%Y-%m-%dT%H:%M:%S%z").replace(
+                tzinfo=None)
+            # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
+            first_trop_time = pytz.timezone('America/Vancouver').localize(first_trop_time)
+        except:
+            first_trop_time = ""
+
+        try:
+            max_trop_time = datetime.datetime.strptime(row["Max_trop_result_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+            # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
+            max_trop_time = pytz.timezone('America/Vancouver').localize(max_trop_time)
+        except:
+            max_trop_time = ""
+
         spo2 = parse_vital(row["SpO2"])
         rr = parse_vital(row["RR"])
         hr = parse_vital(row["HR"])
@@ -544,6 +559,10 @@ def load_mapping_file(mapping_file):
             "bp_sys": bp_sys,
             "bp_dia": bp_dia,
             "temp": temp,
+            "first_trop": float(row["First_trop"]) if not math.isnan(row["First_trop"]) else 0,
+            "first_trop_time": first_trop_time,
+            "max_trop": float(row["Max_trop"]) if not math.isnan(row["Max_trop"]) else 0,
+            "max_trop_time": max_trop_time,
             "case": int(case)
         }
         if int(case) == 1:
@@ -614,8 +633,8 @@ def write_output_file(patient_id_to_results, output_file, patient_to_actual_time
         headers = ["patient_id", "arrival_time", "roomed_time", "dispo_time", "waveform_start_time", "waveform_end_time", "visit_length_sec", "data_length_sec",
                    "data_available_offset_sec", "data_start_offset_sec", "recommended_trim_start_sec",
                    "recommended_trim_end_sec", "min_study_start", "max_study_end", "II_available", "Pleth_available",
-                   "Resp_available", "studies", "trimmed", "spo2", "rr", "hr", "bp_sys", "bp_dia",
-                   "temp", "outcome", "notes"]
+                   "Resp_available", "studies", "trimmed", "first_trop_time", "max_trop_time", "spo2", "rr", "hr", "bp_sys", "bp_dia",
+                   "temp", "first_trop", "max_trop", "outcome", "notes"]
         writer.writerow(headers)
 
         if DEBUG:
@@ -634,6 +653,8 @@ def write_output_file(patient_id_to_results, output_file, patient_to_actual_time
             waveform_start_time = str(v["waveform_start_time"]) if "waveform_start_time" in v else ""
             waveform_end_time = str(v["waveform_end_time"]) if "waveform_end_time" in v else ""
 
+            first_trop_time = str(patient_to_actual_times[k]["first_trop_time"])
+            max_trop_time = str(patient_to_actual_times[k]["max_trop_time"])
             arrival_time = str(patient_to_actual_times[k]["arrival_time"])
             spo2 = patient_to_actual_times[k]["spo2"]
             rr = patient_to_actual_times[k]["rr"]
@@ -641,11 +662,13 @@ def write_output_file(patient_id_to_results, output_file, patient_to_actual_time
             bp_sys = patient_to_actual_times[k]["bp_sys"]
             bp_dia = patient_to_actual_times[k]["bp_dia"]
             temp = patient_to_actual_times[k]["temp"]
+            first_trop = patient_to_actual_times[k]["first_trop"]
+            max_trop = patient_to_actual_times[k]["max_trop"]
 
             row = [k, arrival_time, str(v["roomed_time"]), str(v["dispo_time"]), waveform_start_time, waveform_end_time, visit_length_sec, v["data_length_sec"],
                    data_available_offset_sec, data_start_offset_sec, v["trim_start_sec"], v["trim_end_sec"],
                    str(v["min_start"]), str(v["max_end"]), v["II"], v["Pleth"], v["Resp"], v["studies"], TRIM_WAVEFORMS,
-                   spo2, rr, hr, bp_sys, bp_dia, temp, v["outcome"],
+                   first_trop_time, max_trop_time, spo2, rr, hr, bp_sys, bp_dia, temp, first_trop, max_trop, v["outcome"],
                    v["notes"]]
 
             if DEBUG:

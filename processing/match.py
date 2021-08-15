@@ -1,3 +1,9 @@
+"""
+Example Usage:
+
+python /deep/u/tomjin/ed-monitor-data/processing/match.py -ci /deep/group/pulmonary-embolism/cp-cohort-pe-v1.0.csv -ef /deep/group/ed-monitor/2020_08_23_2020_09_23,/deep/group/ed-monitor/2020_09_23_2020_11_30,/deep/group/ed-monitor/2020_11_30_2020_12_31,/deep/group/ed-monitor/2021_01_01_2021_01_31,/deep/group/ed-monitor/2021_02_01_2021_02_28,/deep/group/ed-monitor/2021_03_01_2021_03_31 -co /deep/group/pulmonary-embolism/test-cohort.csv -eo /deep/group/pulmonary-embolism/test-export.csv
+"""
+
 import argparse
 import datetime
 import os
@@ -68,7 +74,7 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file)
         export_dfs.append(df_export)
 
     # Remove unknown bed labels
-    for i in range(export_dfs):
+    for i in range(len(export_dfs)):
         print(f"Removing unknown bed labels of shape: {export_dfs[i][export_dfs[i]['BedLabel_Transformed'] == 'UNKNOWN'].shape}")
         export_dfs[i] = export_dfs[i][export_dfs[i]["BedLabel_Transformed"] != "UNKNOWN"]
 
@@ -182,6 +188,12 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file)
     df_cohort_matched = df_cohort_matched[df_cohort_matched["study_matched"] == True]
     df_cohort_matched.to_csv(cohort_output_file)
 
+    print("======")
+    print(f"Files written to:")
+    print(f"- {cohort_output_file}")
+    print(f"- {export_output_file}")
+    print("Done")
+    
 
 #
 # Main
@@ -202,4 +214,4 @@ parser.add_argument('-eo', '--export-output-file',
 
 args = parser.parse_args()
 
-run(args.cohort_input_file, args.experiment_folders, args.cohort_output_file, args.export_output_file)
+run(args.cohort_input_file, args.experiment_folders.split(","), args.cohort_output_file, args.export_output_file)
