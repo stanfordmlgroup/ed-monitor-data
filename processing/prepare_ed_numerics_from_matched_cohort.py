@@ -1,0 +1,247 @@
+#!/usr/bin/env python
+
+"""
+Script to extract the numerics file given the original visits. Used if you don't need to match against the actual waveform files (e.g. if RESP waveforms are not actually available, you can still retrieve the numerics file).
+
+Files are written out to:
+- /deep/group/physiologic-states/v1/processed/<hash>/<CSN>.pkl
+where <hash> is the last two characters of the CSN
+
+Example: python prepare_ed_numerics_from_matched_cohort.py -i /deep/group/physiologic-states/v1/matched-cohort.csv -d /deep/group/ed-monitor/2020_08_23_2020_09_23,/deep/group/ed-monitor/2020_09_23_2020_11_30,/deep/group/ed-monitor/2020_11_30_2020_12_31,/deep/group/ed-monitor/2021_01_01_2021_01_31,/deep/group/ed-monitor/2021_02_01_2021_02_28,/deep/group/ed-monitor/2021_03_01_2021_03_31,/deep/group/ed-monitor/2021_04_01_2021_05_12,/deep/group/ed-monitor/2021_05_13_2021_05_31,/deep/group/ed-monitor/2021_06_01_2021_06_30,/deep/group/ed-monitor/2021_07_01_2021_07_31 -o /deep/group/physiologic-states/v1/processed -p 100
+"""
+
+import datetime
+import pandas as pd
+import numpy as np
+import os
+import sys
+import pytz
+import re
+import csv
+import matplotlib.pyplot as plt
+import math
+import pickle
+from biosppy.signals.tools import filter_signal
+from concurrent import futures
+import argparse
+import matplotlib.pyplot as plt
+import random
+from tqdm import tqdm
+import wfdb
+import torch
+from scipy import signal
+from scipy.signal import decimate, resample
+from pathlib import Path
+import datetime
+import os.path
+from os import listdir
+from os.path import isfile, join
+
+pd.set_option('display.max_columns', 500)
+
+COLUMNS = [
+    "HR",
+    "SpO2",
+    "RR"
+]
+
+def load_file(study_to_patient_dir, study):
+    output_files = []
+    
+    if study in study_to_patient_dir:
+        folder_path = study_to_patient_dir[study]
+
+        # 4/18: Temporary fix because the Feb/Mar files weren't moved to the expected location
+        #       and I don't have permissions to move them myself.
+        #
+        if "2021_02_01_2021_02_28" in folder_path:
+            folder_path = os.path.join(folder_path, "data/2021_02_01_2021_02_28")
+            study_folder = os.path.join(folder_path, study)
+        elif "2021_03_01_2021_03_31" in folder_path:
+            folder_path = os.path.join(folder_path, "data/2021_03_01_2021_03_31")
+            study_folder = os.path.join(folder_path, study)
+        else:
+            study_folder = os.path.join(os.path.join(folder_path, "data"), study)
+
+        if os.path.isdir(study_folder):
+            for f in sorted(listdir(study_folder)):
+                if f.endswith("numerics.csv"):
+                    output_files.append(pd.read_csv(f"{study_folder}/{f}").rename(columns=lambda x: x.strip()).replace(r'^\s*$', np.nan, regex=True))
+    else:
+        print(f"Could not determine where study {study} is located")
+    return output_files
+
+
+def process_numerics_file(curr_index, total_rows, patient_id, patient_dirs, study_to_patient_dir, studies, start, end):
+    output_vals = {}
+
+    for col in COLUMNS:
+        output_vals[col] = []
+        output_vals[f"{col}-time"] = []
+    
+    for study in sorted(studies):
+        for df in load_file(study_to_patient_dir, study):
+            if df is None:
+                # There are no numerics for some reason
+                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Numerics file with study {study} does not exist!")
+                continue
+
+            for i, row in df.iterrows():
+                # Data is only available spuriously, so collect all measures as we can between start/end
+
+                date_str = row["Date"].strip() + " " + row["Time"].strip()
+                row_time = datetime.datetime.strptime(date_str, '%m/%d/%Y %H:%M:%S.%f %z')
+                if row_time < start or row_time > end:
+                    # Row is out of our study range
+                    continue
+
+                for col in COLUMNS:
+                    if col in row:
+                        if isinstance(row[col], str):
+                            output_vals[col].append(float(row[col].strip()))
+                            output_vals[f"{col}-time"].append(row_time)
+                        elif isinstance(row[col], float) and not math.isnan(row[col]):
+                            output_vals[col].append(row[col])
+                            output_vals[f"{col}-time"].append(row_time)
+    
+    is_non_empty = False
+    non_empty_len = 0
+    for col in COLUMNS:
+        if len(output_vals[col]) > 0:
+            is_non_empty = True
+            non_empty_len = len(output_vals[col])
+    if is_non_empty:
+        print(f"[{curr_index}/{total_rows}] [{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Numerics file with studies {studies} has len {non_empty_len}")
+        return output_vals, patient_id
+    else:
+        print(f"[{curr_index}/{total_rows}] [{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Numerics file with studies {studies} is empty!")
+        return None, None
+
+
+def process_record(input_args):
+    i, total_rows, waveform_df, patient_dirs, study_to_patient_dir, output_folder = input_args
+
+    # Ensure consistent range selected for each patient file
+    np.random.seed(i)
+    
+    try:
+        patient_id = waveform_df.iloc[[i]]["CSN"].item()
+        print(f"[{i}/{total_rows}] Working on patient={patient_id}")
+        
+        # Keep folders sane by outputting objects into subfolders based on last two digits of CSN
+        folder_hash = str(patient_id)[-2:]
+        output_hash_folder = f"{output_folder}/{folder_hash}"
+        Path(output_hash_folder).mkdir(parents=True, exist_ok=True)
+        
+        if os.path.isfile(f"{output_hash_folder}/{patient_id}.pkl"):
+            # If folder already exists, just skip
+            print(f"[{i}/{total_rows}] [{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Numerics file already exists")
+            return None, None
+    
+        roomed_time = waveform_df.iloc[[i]]["Roomed_time"].item()
+        dispo_time = waveform_df.iloc[[i]]["Dispo_time"].item()
+        studies = waveform_df.iloc[[i]]["final_studies"].item().split(",")
+
+        roomed_time = datetime.datetime.strptime(roomed_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+        dispo_time = datetime.datetime.strptime(dispo_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+
+        # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
+        roomed_time = pytz.timezone('America/Vancouver').localize(roomed_time)
+        dispo_time = pytz.timezone('America/Vancouver').localize(dispo_time)
+
+        numerics, pt = process_numerics_file(i, total_rows, patient_id, patient_dirs, study_to_patient_dir, studies, roomed_time, dispo_time)
+
+        print(f"[{i}/{total_rows}] [{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Trying to Pickle")
+        if numerics is not None:
+            with open(f"{output_hash_folder}/{patient_id}.pkl", 'wb') as handle:
+                pickle.dump(numerics, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+        print(f"[{i}/{total_rows}] [{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Pickle dumped!")
+        return numerics, pt
+    except Exception as e:
+        print("Unexpected error:", e)
+        return None, None
+    
+
+def run(args):
+    print(f"START TIME: {datetime.datetime.now()}")
+    consolidated_file = args.consolidated_file
+    patient_dirs = args.patient_dirs.split(",")
+    output_folder = args.output_folder
+    max_patients = int(args.max_patients) if args.max_patients is not None else None
+
+    Path(output_folder).mkdir(parents=True, exist_ok=True)
+    
+    study_to_patient_dir = {}
+    for folder_path in patient_dirs:
+        files = [f for f in os.listdir(folder_path) if f.endswith(".csv")]
+
+        for f in files:
+            df = pd.read_csv(f"{folder_path}/{f}")
+            for i, row in df.iterrows():
+                study_to_patient_dir[row["StudyId"]] = folder_path
+    print(f"Found {len(study_to_patient_dir)} study_to_patient_dir")
+    
+    df = pd.read_csv(consolidated_file)
+    print(f"Found {consolidated_file} with shape {df.shape}")
+    total_rows = len(df)
+
+    fs = []
+    with futures.ProcessPoolExecutor(64) as executor:
+        for i, row in tqdm(df.iterrows(), disable=True):
+            input_args = [i, total_rows, df, patient_dirs, study_to_patient_dir, output_folder]
+            future = executor.submit(process_record, input_args)
+            fs.append(future)
+            if max_patients is not None and i >= (max_patients - 1):
+                break
+
+#     output_obj = {
+#         "patient_ids": [],
+#         "time": []
+#     }
+#     for col in COLUMNS:
+#         # Will be uneven in length
+#         output_obj[col] = []
+    
+    patients_with_data = 0
+    for future in futures.as_completed(fs):
+        # Blocking call - wait for 1 hour for a single future to complete
+        # (highly unlikely, most likely something is wrong)
+        result, pt = future.result(timeout=60*60)
+        if result is not None:
+            patients_with_data += 1
+#             for w in result.keys():
+#                 output_obj[w].append(result[w])
+#             output_obj["patient_ids"].append(pt)
+
+#     with open(f"{output_folder}/numerics.pkl", 'wb') as handle:
+#         pickle.dump(output_obj, handle, protocol=pickle.HIGHEST_PROTOCOL)      
+        
+#     print(f"Output is written to: {output_folder}/numerics.pkl")
+
+    print(f"Found patients_with_data={patients_with_data}")
+    print(f"END TIME: {datetime.datetime.now()}")
+
+#
+# Main
+#
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Prepare the numerics files from the patient dir')
+    parser.add_argument('-i', '--consolidated-file',
+                        required=True,
+                        help='The path to the consolidated file')
+    parser.add_argument('-d', '--patient-dirs',
+                        required=True,
+                        help='The path to the patient dirs')
+    parser.add_argument('-o', '--output-folder',
+                        required=True,
+                        help='Folder where the output files will be written')
+    parser.add_argument('-p', '--max-patients',
+                        default=None,
+                        help='Maximum number of patients to use')
+
+    args = parser.parse_args()
+
+    run(args)
+
+    print("DONE")

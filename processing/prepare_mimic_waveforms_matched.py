@@ -3,7 +3,10 @@
 """
 Script to prepare the MIMIC waveforms, producing a single file containing all the files that can be loaded as a tensor. 
 
-Example: python prepare_mimic_waveforms.py -i /deep/group/mimic3wdb-matched/physionet.org/files/mimic3wdb-matched/1.0/RECORDS-waveforms -o /deep/group/mimic3wdb-matched/files -l 5 -f 500 -w II
+Differs from prepare_mimic_waveforms.py in that it ensures it picks pretraining waveforms that are matched together
+such that it will have the same target frequency, start/end times.
+
+Example: python prepare_mimic_waveforms_matched.py -i /deep/group/mimic3wdb-matched/physionet.org/files/mimic3wdb-matched/1.0/RECORDS-waveforms -o /deep/group/mimic3wdb-matched/files -l 10 -f 250 -w1 II -w2 PLETH -p 5
 """
 
 import datetime
@@ -103,7 +106,7 @@ def process_record(input_args):
     waveform_id: An id of format "p00/p000020/p000020-2183-04-28-17-47"
     output_dir: Folder to store output files
     """
-    i, total_rows, waveform_id, waveform_length, waveform_target_freq, waveform_types, max_samples_per_patient = input_args
+    i, total_rows, waveform_id, waveform_length, waveform_target_freq, waveform_type1, waveform_type2, max_samples_per_patient = input_args
 
     # Ensure consistent range selected for each patient file
     np.random.seed(i)
@@ -114,73 +117,77 @@ def process_record(input_args):
         header = wfdb.rdheader(record_name, rd_segments=True)
 
         fs = header.fs
-        num_waveforms_processed = {}
-        for waveform_type in waveform_types:
-            if waveform_type not in num_waveforms_processed:
-                num_waveforms_processed[waveform_type] = 0
+        num_waveforms_processed = 0
 
-        waveforms = {}
+        waveforms = []
         for segment in header.segments:
             if segment is None:
                 continue
             if '_layout' in segment.record_name:
                 continue
 
-            for waveform_type in waveform_types:
-                if num_waveforms_processed[waveform_type] >= max_samples_per_patient:
-                    continue
+            if num_waveforms_processed >= max_samples_per_patient:
+                continue
+                
+            # segment.sig_name = ['RESP', 'II', 'V', 'AVR']
+            
+            waveform_config1 = WAVEFORMS_OF_INTERST[waveform_type1]
+            waveform_config2 = WAVEFORMS_OF_INTERST[waveform_type2]
+            
+            if waveform_type1 in segment.sig_name and waveform_type2 in segment.sig_name and segment.sig_len > (waveform_length * fs):
+                record = wfdb.rdrecord(f"{patient_folder}/{segment.record_name}")
+                if waveform_type1 in record.sig_name and waveform_type2 in record.sig_name:
+                    window_size = int(waveform_length * fs)
+                    pointer = 0
+                    attempt = 1
+                    while num_waveforms_processed < max_samples_per_patient and attempt < PATIENCE:
+                        pointer = np.random.randint(0, max(1, segment.sig_len - window_size))
+                        w_index1 = record.sig_name.index(waveform_type1)
+                        w_index2 = record.sig_name.index(waveform_type2)
 
-                waveform_config = WAVEFORMS_OF_INTERST[waveform_type]
-                if waveform_type in segment.sig_name and segment.sig_len > (waveform_length * fs):
-                    record = wfdb.rdrecord(f"{patient_folder}/{segment.record_name}")
-                    if waveform_type in record.sig_name:
-                        window_size = int(waveform_length * fs)
-                        pointer = 0
-                        attempt = 1
-                        while num_waveforms_processed[waveform_type] < max_samples_per_patient and attempt < PATIENCE:
-                            pointer = np.random.randint(0, max(1, segment.sig_len - window_size))
-                            w_index = record.sig_name.index(waveform_type)
-                            waveform = get_waveform(record, pointer, w_index, window_size, should_normalize=waveform_config["normalize"], bandpass_type=waveform_config["bandpass_type"], bandwidth=waveform_config["bandpass_freq"], target_fs=waveform_target_freq)
-                            if waveform is None:
-                                print(f"[{i}/{total_rows}] {segment.record_name} waveform was empty at {pointer}. Trying again...")
-                                attempt += 1
-                                continue
+                        waveform1 = get_waveform(record, pointer, w_index1, window_size, should_normalize=waveform_config1["normalize"], bandpass_type=waveform_config1["bandpass_type"], bandwidth=waveform_config1["bandpass_freq"], target_fs=waveform_target_freq)
 
-                            print(f"[{i}/{total_rows}] {segment.record_name} waveform {waveform_type} of shape {waveform.shape}")
+                        waveform2 = get_waveform(record, pointer, w_index2, window_size, should_normalize=waveform_config2["normalize"], bandpass_type=waveform_config2["bandpass_type"], bandwidth=waveform_config2["bandpass_freq"], target_fs=waveform_target_freq)
 
-                            if waveform_type not in waveforms:
-                                waveforms[waveform_type] = []
+                        if waveform1 is None or waveform2 is None:
+                            print(f"[{i}/{total_rows}] {segment.record_name} waveform was empty for one of the waveforms at {pointer}. Trying again...")
+                            attempt += 1
+                            continue
 
-                            subject_id = waveform_id.split("/")[1].replace("p", "")
-                            waveforms[waveform_type].append({
-                                "record_name": segment.record_name,
-                                "subject_id": subject_id,
-                                "pointer": pointer,
-                                "waveform": waveform
-                            })
+                        print(f"[{i}/{total_rows}] {segment.record_name} waveform1 {waveform_type1} of shape {waveform1.shape}; waveform2 {waveform_type2} of shape {waveform2.shape}")
 
-                            pointer += window_size
-                            num_waveforms_processed[waveform_type] += 1
+                        subject_id = waveform_id.split("/")[1].replace("p", "")
+                        waveforms.append({
+                            "record_name": segment.record_name,
+                            "subject_id": subject_id,
+                            "pointer": pointer,
+                            "waveform1": waveform1,
+                            "waveform2": waveform2
+                        })
 
+                        pointer += window_size
+                        num_waveforms_processed += 1
+                
+        if len(waveforms) == 0:
+            print(f"[{i}/{total_rows}] {waveform_id} waveform did not have any expected types")
         return waveforms
     except Exception as e:
         print("Unexpected error:", e)
-        return {}
+        return []
 
 def run(args):
-    waveform_types = args.waveform_types.split(",")
+    waveform_type1 = args.waveform_type1
+    waveform_type2 = args.waveform_type2
     input_file = args.records_waveform_file
     output_folder = args.output_folder
     max_samples_per_patient = int(args.max_samples_per_patient)
     max_patients = int(args.max_patients) if args.max_patients is not None else None
     waveform_length = int(args.length)
     waveform_target_freq = float(args.frequency)
-    waveform_types = waveform_types
     
     output_folder = f"{output_folder}/{waveform_length}sec-{int(waveform_target_freq)}hz-{max_samples_per_patient}wpp"
     Path(output_folder).mkdir(parents=True, exist_ok=True)
-    for w in waveform_types:
-        Path(f"{output_folder}/{w}").mkdir(parents=True, exist_ok=True)
+    Path(f"{output_folder}/{waveform_type1}-{waveform_type2}").mkdir(parents=True, exist_ok=True)
     
     df = pd.read_csv(input_file, header=None)
     print(f"Found {input_file} with shape {df.shape}")
@@ -189,36 +196,35 @@ def run(args):
     fs = []
     with futures.ProcessPoolExecutor(16) as executor:
         for i, row in tqdm(df.iterrows(), disable=True):
-            input_args = [i, total_rows, row[0], waveform_length, waveform_target_freq, waveform_types, max_samples_per_patient]
+            input_args = [i, total_rows, row[0], waveform_length, waveform_target_freq, waveform_type1, waveform_type2, max_samples_per_patient]
             future = executor.submit(process_record, input_args)
             fs.append(future)
             if max_patients is not None and i >= (max_patients - 1):
                 break
 
-    waveforms = {}
-    for w in waveform_types:
-        waveforms[w] = []
-    
+    waveforms = []
     for future in futures.as_completed(fs):
         # Blocking call - wait for 1 hour for a single future to complete
         # (highly unlikely, most likely something is wrong)
         result = future.result(timeout=60*60)
         if result is not None:
-            for w in result.keys():
-                waveforms[w].extend(result[w])
+             waveforms.extend(result)
 
-    for w in waveform_types:
-        output_waveforms = []
-        with open(f"{output_folder}/{w}/summary.csv", "w") as f:
-            writer = csv.writer(f, delimiter=',', quotechar='"')
-            headers = ["subject_id", "record_name", "pointer"]
-            writer.writerow(headers)
-            for row in waveforms[w]:
-                writer.writerow([row["subject_id"], row["record_name"], row["pointer"]])
-                output_waveforms.append(row["waveform"])
+    output_waveforms1 = []
+    output_waveforms2 = []
+    with open(f"{output_folder}/{waveform_type1}-{waveform_type2}/summary.csv", "w") as f:
+        writer = csv.writer(f, delimiter=',', quotechar='"')
+        headers = ["subject_id", "record_name", "pointer"]
+        writer.writerow(headers)
+        for row in waveforms:
+            writer.writerow([row["subject_id"], row["record_name"], row["pointer"]])
+            output_waveforms1.append(row["waveform1"])
+            output_waveforms2.append(row["waveform2"])
 
-        output_tensor = torch.FloatTensor(output_waveforms)
-        torch.save(output_tensor, f"{output_folder}/{w}/waveforms.pt")
+    output_tensor1 = torch.FloatTensor(output_waveforms1)
+    torch.save(output_tensor1, f"{output_folder}/{waveform_type1}-{waveform_type2}/waveforms1.pt")
+    output_tensor2 = torch.FloatTensor(output_waveforms2)
+    torch.save(output_tensor2, f"{output_folder}/{waveform_type1}-{waveform_type2}/waveforms2.pt")
 
 #
 # Main
@@ -243,7 +249,10 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--max-patients',
                         default=None,
                         help='Maximum number of patients to use')
-    parser.add_argument('-w', '--waveform-types',
+    parser.add_argument('-w1', '--waveform-type1',
+                        required=True,
+                        help='Comma separated list of waveform types to process. Supported values: II, PLETH, RESP')
+    parser.add_argument('-w2', '--waveform-type2',
                         required=True,
                         help='Comma separated list of waveform types to process. Supported values: II, PLETH, RESP')
 
