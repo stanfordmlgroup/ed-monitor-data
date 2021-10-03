@@ -32,7 +32,7 @@ def run(args):
                     rr_len = len(b["RR"])
                     spo2_len = len(b["SpO2"])
                     rows.append([name.replace(".pkl", ""), str(hr_len), str(rr_len), str(spo2_len)])
-   
+
     with open(f"{input_folder}/summary.csv", "w") as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
         writer.writerow(["csn", "hr_len", "rr_len", "spo2_len"])

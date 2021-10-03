@@ -16,7 +16,7 @@ Each patient visit will be written out in the following format to the output fol
     - Resp.dat
 
 Usage:
-- python -u /deep/u/tomjin/ed-monitor-data/processing/consolidate.py /deep/group/pulmonary-embolism/test-cohort.csv /deep/group/pulmonary-embolism/test-export.csv /deep/group/pulmonary-embolism/patient-data-v1 /deep/group/pulmonary-embolism/consolidated-v1.csv
+- python -u /deep/u/tomjin/ed-monitor-data/processing/consolidate.py /deep/group/lactate/v1/matched-cohort.csv /deep/group/lactate/v1/matched-export.csv /deep/group/lactate/v1/patient-data /deep/group/lactate/v1/consolidated.csv 3
 
 """
 
@@ -241,7 +241,7 @@ def parse_vital(vital, index_to_return=0):
         return float('nan')
 
 def process_study(input_args):
-    curr_patient_index, total_patients, patient_id, studies, patient_to_actual_times, patient_to_outcome, study_to_info, output_dir = input_args
+    curr_patient_index, total_patients, patient_id, studies, patient_to_actual_times, patient_to_row, study_to_info, output_dir = input_args
     min_start = None
     max_end = None
 
@@ -353,7 +353,7 @@ def process_study(input_args):
             "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
             "Resp": 1 if "Resp" in waveform_to_metadata else 0,
             "studies": ",".join(studies),
-            "outcome": 1 if patient_id in patient_to_outcome else 0
+            "row": patient_to_row[patient_id]
         }
 
     # Our model is based on the assumption that there are lead II waveforms
@@ -376,7 +376,7 @@ def process_study(input_args):
             "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
             "Resp": 1 if "Resp" in waveform_to_metadata else 0,
             "studies": ",".join(studies),
-            "outcome": 1 if patient_id in patient_to_outcome else 0
+            "row": patient_to_row[patient_id]
         }
 
     waveform_type_to_waveform = {}
@@ -412,7 +412,7 @@ def process_study(input_args):
                 "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
                 "Resp": 1 if "Resp" in waveform_to_metadata else 0,
                 "studies": ",".join(studies),
-                "outcome": 1 if patient_id in patient_to_outcome else 0
+                "row": patient_to_row[patient_id]
             }
 
         for w, waveform in waveform_type_to_waveform.items():
@@ -472,11 +472,11 @@ def process_study(input_args):
         "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
         "Resp": 1 if "Resp" in waveform_to_metadata else 0,
         "studies": ",".join(studies),
-        "outcome": 1 if patient_id in patient_to_outcome else 0
+        "row": patient_to_row[patient_id]
     }
 
 
-def process_studies(patient_to_actual_times, patient_to_studies, patient_to_outcome, study_to_info, output_dir):
+def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, output_dir):
     patient_id_to_results = {}
 
     fs = []
@@ -488,7 +488,7 @@ def process_studies(patient_to_actual_times, patient_to_studies, patient_to_outc
                 break
 
             input_args = [i, len(patient_to_studies), patient_id, studies, patient_to_actual_times,
-                          patient_to_outcome, study_to_info, output_dir]
+                          patient_to_row, study_to_info, output_dir]
             future = executor.submit(process_study, input_args)
             fs.append(future)
 
@@ -508,9 +508,8 @@ def process_studies(patient_to_actual_times, patient_to_studies, patient_to_outc
 def load_mapping_file(mapping_file):
     df = pd.read_csv(mapping_file)
 
+    patient_to_row = {}
     patient_to_actual_times = {}
-    outcome_pos = 0
-    outcome_neg = 0
     for index, row in df.iterrows():
         roomed_time = datetime.datetime.strptime(row["Roomed_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
         # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
@@ -525,42 +524,30 @@ def load_mapping_file(mapping_file):
         # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
         arrival_time = pytz.timezone('America/Vancouver').localize(arrival_time)
 
-        spo2 = parse_vital(row["SpO2"])
-        rr = parse_vital(row["RR"])
-        hr = parse_vital(row["HR"])
-        bp_sys = parse_vital(row["SBP"])
-        bp_dia = parse_vital(row["DBP"])
-        temp = parse_vital(row["Temp"])
+        row["SpO2"] = parse_vital(row["SpO2"])
+        row["RR"] = parse_vital(row["RR"])
+        row["HR"] = parse_vital(row["HR"])
+        row["SBP"] = parse_vital(row["SBP"])
+        row["DBP"] = parse_vital(row["DBP"])
+        row["Temp"] = parse_vital(row["Temp"])
 
         case_id = row["CSN"]
-        case = row["outcome"]
         patient_to_actual_times[case_id] = {
             "roomed_time": roomed_time,
             "dispo_time": dispo_time,
-            "arrival_time": arrival_time,
-            "spo2": spo2,
-            "rr": rr,
-            "hr": hr,
-            "bp_sys": bp_sys,
-            "bp_dia": bp_dia,
-            "temp": temp,
-            "case": int(case)
+            "arrival_time": arrival_time
         }
-        if int(case) == 1:
-            outcome_pos += 1
-        else:
-            outcome_neg += 1
+        patient_to_row[case_id] = row
 
-    print(
-        f"Total patients in cohort file = {len(patient_to_actual_times)}; outcome_pos={outcome_pos} ({100 * outcome_pos / (outcome_pos + outcome_neg)})%")
-    return patient_to_actual_times
+    print(f"Total patients in cohort file = {len(patient_to_actual_times)}")
+    return patient_to_actual_times, patient_to_row
 
 
-def load_exports_file(exports_file, patient_to_actual_times):
+def load_exports_file(exports_file):
     df = pd.read_csv(exports_file)
 
     patient_to_studies = {}
-    patient_to_outcome = {}
+    patient_to_row = {}
     study_to_info = {}
     study_to_patient = {}
     for index, row in df.iterrows():
@@ -569,9 +556,8 @@ def load_exports_file(exports_file, patient_to_actual_times):
         folder_path = row["path"]
         start_time = row["StartTime"]
         end_time = row["EndTime"]
-        if case in patient_to_actual_times:
-            if patient_to_actual_times[case]["case"] == 1:
-                patient_to_outcome[case] = True
+        patient_to_row[case] = row
+
         start_time = datetime.datetime.strptime(start_time, '%m/%d/%y %H:%M:%S')
         start_time = start_time.astimezone(pytz.timezone('America/Vancouver'))
         end_time = datetime.datetime.strptime(end_time, '%m/%d/%y %H:%M:%S')
@@ -603,19 +589,27 @@ def load_exports_file(exports_file, patient_to_actual_times):
 
     print("---")
     print(
-        f"Total patients in mapped file = {len(patient_to_studies)}; outcome={len(patient_to_outcome)} ({100 * len(patient_to_outcome) / (len(patient_to_studies))})%")
+        f"Total patients in mapped file = {len(patient_to_studies)}")
 
-    return patient_to_studies, patient_to_outcome, study_to_info
+    return patient_to_studies, study_to_info
 
 
-def write_output_file(patient_id_to_results, output_file, patient_to_actual_times):
+def write_output_file(patient_id_to_results, output_file):
     with open(output_file, "w") as f:
         writer = csv.writer(f, delimiter=',', quotechar='"')
-        headers = ["patient_id", "arrival_time", "roomed_time", "dispo_time", "waveform_start_time", "waveform_end_time", "visit_length_sec", "data_length_sec",
+        headers = ["patient_id", "roomed_time", "dispo_time", "waveform_start_time", "waveform_end_time", "visit_length_sec", "data_length_sec",
                    "data_available_offset_sec", "data_start_offset_sec", "recommended_trim_start_sec",
                    "recommended_trim_end_sec", "min_study_start", "max_study_end", "II_available", "Pleth_available",
-                   "Resp_available", "studies", "trimmed", "spo2", "rr", "hr", "bp_sys", "bp_dia",
-                   "temp", "outcome", "notes"]
+                   "Resp_available", "studies", "notes"]
+        
+        # Add additional headers
+        random_pt = next(iter(patient_id_to_results))
+        additional_headers = []
+        for k in list(patient_id_to_results[random_pt]["row"].keys()):
+            if k not in headers:
+                headers.append(k)
+                additional_headers.append(k)
+
         writer.writerow(headers)
 
         if DEBUG:
@@ -634,19 +628,13 @@ def write_output_file(patient_id_to_results, output_file, patient_to_actual_time
             waveform_start_time = str(v["waveform_start_time"]) if "waveform_start_time" in v else ""
             waveform_end_time = str(v["waveform_end_time"]) if "waveform_end_time" in v else ""
 
-            arrival_time = str(patient_to_actual_times[k]["arrival_time"])
-            spo2 = patient_to_actual_times[k]["spo2"]
-            rr = patient_to_actual_times[k]["rr"]
-            hr = patient_to_actual_times[k]["hr"]
-            bp_sys = patient_to_actual_times[k]["bp_sys"]
-            bp_dia = patient_to_actual_times[k]["bp_dia"]
-            temp = patient_to_actual_times[k]["temp"]
-
-            row = [k, arrival_time, str(v["roomed_time"]), str(v["dispo_time"]), waveform_start_time, waveform_end_time, visit_length_sec, v["data_length_sec"],
+            row = [k, str(v["roomed_time"]), str(v["dispo_time"]), waveform_start_time, waveform_end_time, visit_length_sec, v["data_length_sec"],
                    data_available_offset_sec, data_start_offset_sec, v["trim_start_sec"], v["trim_end_sec"],
-                   str(v["min_start"]), str(v["max_end"]), v["II"], v["Pleth"], v["Resp"], v["studies"], TRIM_WAVEFORMS,
-                   spo2, rr, hr, bp_sys, bp_dia, temp, v["outcome"],
-                   v["notes"]]
+                   str(v["min_start"]), str(v["max_end"]), v["II"], v["Pleth"], v["Resp"], v["studies"], v["notes"]]
+            
+            # Append the data from the original file
+            for k in additional_headers:
+                row.append(v["row"][k])
 
             if DEBUG:
                 print(row)
@@ -654,8 +642,7 @@ def write_output_file(patient_id_to_results, output_file, patient_to_actual_time
 
 
 if __name__ == '__main__':
-    # Mapping file contains the original cohort information. It is primarily used here to retrieve basic information
-    # on the patient such as whether they are outcome positive or not.
+    # Mapping file contains the original cohort information. It is primarily used here to retrieve basic information on the patient.
     mapping_file = sys.argv[1]
 
     # Exports file contains the patient and STUDY ID relationship.
@@ -674,11 +661,11 @@ if __name__ == '__main__':
     print(f"Starting data consolidation with mapping_file={mapping_file}, exports_file={exports_file}, waveform_types={WAVEFORM_TYPES}, limit={LIMIT}")
     print("-" * 30)
 
-    patient_to_actual_times = load_mapping_file(mapping_file)
-    patient_to_studies, patient_to_outcome, study_to_info = load_exports_file(exports_file, patient_to_actual_times)
-    patient_id_to_results = process_studies(patient_to_actual_times, patient_to_studies, patient_to_outcome, study_to_info, output_dir)
+    patient_to_actual_times, patient_to_row = load_mapping_file(mapping_file)
+    patient_to_studies, study_to_info = load_exports_file(exports_file)
+    patient_id_to_results = process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, output_dir)
 
     print("==" * 30)
-    write_output_file(patient_id_to_results, output_file, patient_to_actual_times)
+    write_output_file(patient_id_to_results, output_file)
 
     print("DONE")
