@@ -3,3 +3,5 @@ example_data
 submissions/
 .ipynb_checkpoints/
 lightning_logs/
+__pycache__/
+checkpoints/
