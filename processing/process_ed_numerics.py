@@ -43,46 +43,52 @@ def process_record(input_args):
         patient_id = waveform_df.iloc[[curr_index]]["patient_id"].item()
         print(f"[{curr_index}/{total_rows}] Working on patient={patient_id}")
 
-        cutoff_time = waveform_df.iloc[[curr_index]][before_col].item()
-
-        cutoff_time = datetime.datetime.strptime(cutoff_time, '%Y-%m-%dT%H:%M:%S%z').replace(tzinfo=None)
-        # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
-        cutoff_time = pytz.timezone('America/Vancouver').localize(cutoff_time)
-
-        # Keep folders sane by outputting objects into subfolders based on last two digits of CSN
+        # Folders are kept sane by outputting objects into subfolders based on last two digits of CSN
         folder_hash = str(patient_id)[-2:]
         output_hash_folder = f"{input_folder}/{folder_hash}"
 
+        index_to_sample_before_hr = 0
+        index_to_sample_before_rr = 0
+        index_to_sample_before_spo2 = 0
+        
         with open(f"{output_hash_folder}/{patient_id}.pkl", 'rb') as handle:
             b = pickle.load(handle)
-            index_to_sample_before_hr = 0
-            index_to_sample_before_rr = 0
-            index_to_sample_before_spo2 = 0
 
-            for i in range(len(b["HR-time"])):
-                if b["HR-time"][i] <= cutoff_time:
-                    index_to_sample_before_hr = i
-                else:
-                    break
-            for i in range(len(b["RR-time"])):
-                if b["RR-time"][i] <= cutoff_time:
-                    index_to_sample_before_rr = i
-                else:
-                    break
-            for i in range(len(b["SpO2-time"])):
-                if b["SpO2-time"][i] <= cutoff_time:
-                    index_to_sample_before_spo2 = i
-                else:
-                    break
+            if before_col is not None:
+                cutoff_time = waveform_df.iloc[[curr_index]][before_col].item()
+                cutoff_time = datetime.datetime.strptime(cutoff_time, '%Y-%m-%dT%H:%M:%S%z').replace(tzinfo=None)
+                # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
+                cutoff_time = pytz.timezone('America/Vancouver').localize(cutoff_time)
 
-            print(f"[{curr_index}/{total_rows}] Truncating patient={patient_id} at hr={index_to_sample_before_hr}/{len(b['HR'])} rr={index_to_sample_before_rr}/{len(b['RR'])} spo2={index_to_sample_before_spo2}/{len(b['SpO2'])}")
+                for i in range(len(b["HR-time"])):
+                    if b["HR-time"][i] <= cutoff_time:
+                        index_to_sample_before_hr = i
+                    else:
+                        break
+                for i in range(len(b["RR-time"])):
+                    if b["RR-time"][i] <= cutoff_time:
+                        index_to_sample_before_rr = i
+                    else:
+                        break
+                for i in range(len(b["SpO2-time"])):
+                    if b["SpO2-time"][i] <= cutoff_time:
+                        index_to_sample_before_spo2 = i
+                    else:
+                        break
+
+                print(f"[{curr_index}/{total_rows}] Truncating patient={patient_id} at hr={index_to_sample_before_hr}/{len(b['HR'])} rr={index_to_sample_before_rr}/{len(b['RR'])} spo2={index_to_sample_before_spo2}/{len(b['SpO2'])}")
+
+            else:
+                index_to_sample_before_hr = None
+                index_to_sample_before_rr = None
+                index_to_sample_before_spo2 = None
 
             info = {
                 "index_to_sample_before_hr": index_to_sample_before_hr,
                 "index_to_sample_before_rr": index_to_sample_before_rr,
                 "index_to_sample_before_spo2": index_to_sample_before_spo2
             }
-            
+
             return patient_id, b["HR"][:index_to_sample_before_hr], b["RR"][:index_to_sample_before_rr], b["SpO2"][:index_to_sample_before_spo2], info
 
     except Exception as e:

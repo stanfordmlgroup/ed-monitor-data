@@ -42,7 +42,9 @@ pd.set_option('display.max_columns', 500)
 COLUMNS = [
     "HR",
     "SpO2",
-    "RR"
+    "RR",
+    "NBPs",
+    "NBPd"
 ]
 
 def load_file(study_to_patient_dir, study):
@@ -59,6 +61,21 @@ def load_file(study_to_patient_dir, study):
             study_folder = os.path.join(folder_path, study)
         elif "2021_03_01_2021_03_31" in folder_path:
             folder_path = os.path.join(folder_path, "data/2021_03_01_2021_03_31")
+            study_folder = os.path.join(folder_path, study)
+        elif "2021_04_01_2021_05_12" in folder_path:
+            folder_path = os.path.join(folder_path, "data/2021_04_01_2021_05_12")
+            study_folder = os.path.join(folder_path, study)
+        elif "2021_05_13_2021_05_31" in folder_path:
+            folder_path = os.path.join(folder_path, "data/2021_05_13_2021_05_31")
+            study_folder = os.path.join(folder_path, study)
+        elif "2021_06_01_2021_06_30" in folder_path:
+            folder_path = os.path.join(folder_path, "data/2021_06_01_2021_06_30")
+            study_folder = os.path.join(folder_path, study)
+        elif "2021_07_01_2021_07_31" in folder_path:
+            folder_path = os.path.join(folder_path, "data/2021_07_01_2021_07_31")
+            study_folder = os.path.join(folder_path, study)
+        elif "2021_08_01_2021_09_16" in folder_path:
+            folder_path = os.path.join(folder_path, "data/2021_08_01_2021_09_16")
             study_folder = os.path.join(folder_path, study)
         else:
             study_folder = os.path.join(os.path.join(folder_path, "data"), study)

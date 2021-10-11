@@ -26,16 +26,21 @@ def run(args):
     for root, dirs, files in tqdm(os.walk(input_folder)):
         for name in files:
             if name.endswith(".pkl"):
-                with open(os.path.join(root, name), 'rb') as handle:
-                    b = pickle.load(handle)
-                    hr_len = len(b["HR"])
-                    rr_len = len(b["RR"])
-                    spo2_len = len(b["SpO2"])
-                    rows.append([name.replace(".pkl", ""), str(hr_len), str(rr_len), str(spo2_len)])
+                try:
+                    with open(os.path.join(root, name), 'rb') as handle:
+                        b = pickle.load(handle)
+                        hr_len = len(b["HR"])
+                        rr_len = len(b["RR"])
+                        spo2_len = len(b["SpO2"])
+                        nbps_len = len(b["NBPs"])
+                        nbpd_len = len(b["NBPd"])
+                        rows.append([name.replace(".pkl", ""), str(hr_len), str(rr_len), str(spo2_len), str(nbps_len), str(nbpd_len)])
+                except:
+                    print(f"Could not load file {name}")
 
     with open(f"{input_folder}/summary.csv", "w") as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
-        writer.writerow(["csn", "hr_len", "rr_len", "spo2_len"])
+        writer.writerow(["csn", "HR_len", "RR_len", "SpO2_len", "NBPs_len", "NBPd_len"])
         for line in rows:
             writer.writerow(line)
 

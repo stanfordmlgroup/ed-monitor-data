@@ -248,7 +248,7 @@ class EDModule(pl.LightningModule):
 def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64, embed_dim=322,
               dropout_rate=0.2, learning_rate=0.001, start_from=0,
               num_inner_layers=2, batch_size=64, reg=None, epochs=200,
-              verbose=0, save_model=False, save_predictions=False, show_df_preview=False):
+              verbose=0, save_model=False, save_predictions_path=None, show_df_preview=False):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     pl.seed_everything(1234)
@@ -306,6 +306,16 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
         auroc_train = calculate_output_statistics(final_y, final_preds)
     else:
         auroc_train = calculate_output_statistics(final_y, final_preds, show_plots=False)
+    
+    if save_predictions_path is not None:
+        Path(f"{save_predictions_path}").mkdir(parents=True, exist_ok=True)
+        pt_ids = model.get_final_patient_ids()
+        with open(f"{save_predictions_path}/train.csv", "w") as fp:
+            writer = csv.writer(fp, delimiter=",")
+            writer.writerow(["patient_id", "preds", "actual"])
+            for ind in range(len(pt_ids)):
+                writer.writerow([pt_ids[ind], final_preds[ind], final_y[ind]])
+        
     train_aurocs.append(auroc_train)
     
     if verbose >= 1:
@@ -332,6 +342,15 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
     if verbose >= 1:
         print(f"VAL AUROC = {auroc_val} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} pos")
 
+    if save_predictions_path is not None:
+        Path(f"{save_predictions_path}").mkdir(parents=True, exist_ok=True)
+        pt_ids = model.get_final_patient_ids()
+        with open(f"{save_predictions_path}/val.csv", "w") as fp:
+            writer = csv.writer(fp, delimiter=",")
+            writer.writerow(["patient_id", "preds", "actual"])
+            for ind in range(len(pt_ids)):
+                writer.writerow([pt_ids[ind], final_preds[ind], final_y[ind]])
+
     if verbose >= 1:
         print()
         print()
@@ -350,6 +369,15 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
     if verbose >= 1:
         print(f"TEST AUROC = {auroc_test} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} pos")
 
+    if save_predictions_path is not None:
+        Path(f"{save_predictions_path}").mkdir(parents=True, exist_ok=True)
+        pt_ids = model.get_final_patient_ids()
+        with open(f"{save_predictions_path}/test.csv", "w") as fp:
+            writer = csv.writer(fp, delimiter=",")
+            writer.writerow(["patient_id", "preds", "actual"])
+            for ind in range(len(pt_ids)):
+                writer.writerow([pt_ids[ind], final_preds[ind], final_y[ind]])
+        
     if verbose >= 1:
         print()
         print()

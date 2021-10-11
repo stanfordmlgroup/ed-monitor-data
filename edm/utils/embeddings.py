@@ -4,6 +4,33 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
 
+def get_cohort_df(df, outcome_col="outcome", additional_cols=[]):
+    """
+    Returns a dataframe that contains additional columns from the cohort file to use as input into the downstream model.
+    
+    :param df: The dataframe of the patients (contains visit information, demographics, etc.)
+    :outcome_col: The column where the outcome is defined
+    :additional_cols: The columns which should be added to the output embedding
+    """
+
+    output = []
+    
+    for i, row in df.iterrows():
+        patient_id = int(row["patient_id"])
+        outcome = row[outcome_col]
+        new_row = [patient_id, outcome]
+
+        for c in additional_cols:
+            new_row.append(row[c])
+
+        output.append(new_row)
+    
+    headers = ["patient_id", "outcome"]
+    for c in additional_cols:
+        headers.append(c)
+    
+    return pd.DataFrame(output, columns=headers)
+
 def get_embedding_df(df, summary_df, waveforms, outcome_col="outcome", additional_cols=[]):
     """
     Returns a dataframe that concatenates the embeddings and any additional columns to use

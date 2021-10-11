@@ -9,6 +9,19 @@ python -m unittest tests.test_embeddings
 
 class TestEmbeddings(unittest.TestCase):
 
+    def test_get_cohort_df(self):
+        df = pd.DataFrame({
+            'patient_id': [101, 102, 103],
+            'outcome': [0, 1, 0],
+            'HR': [70, 100, 80],
+            'RR': [np.nan, 12, 30]
+        })
+        
+        output_df = embeddings.get_cohort_df(df, additional_cols=["HR", "RR"])
+        self.assertEqual(output_df.shape[0], 3)
+        self.assertEqual(output_df.shape[1], 4)
+        print(output_df)
+
     def test_get_embedding_df(self):
         df = pd.DataFrame({
             'patient_id': [101, 102, 103],

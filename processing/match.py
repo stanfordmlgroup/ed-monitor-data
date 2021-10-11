@@ -27,8 +27,18 @@ LONG_BED_TO_SHORT_BED = {
 # Main Logic
 #
 def run(cohort_file, experiment_folders, cohort_output_file, export_output_file):
+    
+    def print_size(df, prev_size=None, prev_pos_size=None):
+        curr_size = df.shape[0]
+        curr_pos_size = sum(df['Case_for_train'])
+        if prev_size is None:
+            print(f"Size: {curr_size} Pos: {curr_pos_size}")
+        else:
+            print(f"Size: {curr_size} Pos: {curr_pos_size}; Eliminated {prev_size - curr_size} and pos {prev_pos_size - curr_pos_size}")
+        return curr_size, curr_pos_size
+
     df = pd.read_csv(cohort_file)
-    print(f"Read cohort file: {df.shape}")
+    prev_size, prev_pos_size = print_size(df, prev_size=None, prev_pos_size=None)
 
     # Removes patients who moved to a different bed
     rows_to_keep = []
@@ -41,11 +51,13 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file)
             rows_to_keep.append(False)
     df = df[rows_to_keep]
     print(f"After eliminating patients who moved beds: {df.shape}")
+    prev_size, prev_pos_size = print_size(df, prev_size, prev_pos_size)
 
     # Remove rows where important times are Nan
     df = df[df['Dispo_time'].notna()]
     df = df[df['Arrival_time'].notna()]
     print(f"After eliminating patients who had invalid times: {df.shape}")
+    prev_size, prev_pos_size = print_size(df, prev_size, prev_pos_size)
 
     # Read bed files
     export_files = []
@@ -186,6 +198,8 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file)
     df_cohort_matched["final_export_df_ids"] = final_export_df_ids
     df_cohort_matched["final_studies"] = final_studies
     df_cohort_matched = df_cohort_matched[df_cohort_matched["study_matched"] == True]
+    print(f"After removing non-matching studies: {df_cohort_matched.shape}")
+    prev_size, prev_pos_size = print_size(df_cohort_matched, prev_size, prev_pos_size)
     df_cohort_matched.to_csv(cohort_output_file)
 
     print("======")
