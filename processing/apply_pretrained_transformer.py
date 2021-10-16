@@ -234,12 +234,18 @@ def process_record(input_args):
 def run(args):
     input_folder = args.waveform_folder
     model_path = args.model_path
+    remove_last_layer = bool(int(args.remove_last_layer))
     deepfeat_sz = int(args.deepfeat_sz)
     max_patients = int(args.max_patients) if args.max_patients is not None else None
     
-    output_folder = f"{input_folder}/transformer"
+    if remove_last_layer:
+        output_folder = f"{input_folder}/transformer-{deepfeat_sz}"
+    else:
+        output_folder = f"{input_folder}/transformer-{deepfeat_sz}-logits"
+
     Path(output_folder).mkdir(parents=True, exist_ok=True)
     print(f"Loading file from {input_folder}")
+    print(f"Output folder will be: {output_folder}")
 
     df = pd.read_csv(f"{input_folder}/summary.csv")
     waveforms_numpy = np.load(f"{input_folder}/waveforms.dat.npy")
@@ -247,7 +253,7 @@ def run(args):
     
     print(f"Loading model from {model_path}")
     
-    model = load_best_model(model_path, deepfeat_sz=deepfeat_sz, remove_last_layer=True)
+    model = load_best_model(model_path, deepfeat_sz=deepfeat_sz, remove_last_layer=remove_last_layer)
     model.eval()
     print(f"Loaded model from {model_path}")
     
@@ -304,6 +310,9 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--deepfeat-sz',
                         default=64,
                         help='deepfeat_sz')
+    parser.add_argument('-r', '--remove-last-layer',
+                        default=1,
+                        help='Set to be 1 if we wish to remove last layer and create embeddings. 0 if we want the ECG classifications.')
 
     args = parser.parse_args()
 
