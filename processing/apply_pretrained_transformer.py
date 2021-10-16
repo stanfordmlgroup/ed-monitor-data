@@ -116,7 +116,7 @@ if __name__ == '__main__':
                         required=True,
                         help='The path to the consolidated waveforms folder containing the summary file and the waveform NumPy')
     parser.add_argument('-m', '--model-path',
-                        default=15,
+                        default="",
                         help='Pre-trained model location')
     parser.add_argument('-p', '--max-patients',
                         default=None,
