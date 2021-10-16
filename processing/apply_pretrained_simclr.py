@@ -6,36 +6,12 @@ Applies the pretrained SimCLR model onto the consolidated waveform file to retri
 Example: python apply_pretrained_simclr.py -i /deep/group/pulmonary-embolism/v2/waveforms/20sec-125hz-0norm-1wpp/Pleth -m /deep/group/pulmonary-embolism/v2/pretrained-models/simclr/pleth-epoch=9-step=2149.ckpt -f /deep/group/mimic3wdb-matched/files/20sec-125hz-1wpp/PLETH/waveforms.pt
 """
 
-import datetime
-import pandas as pd
-import numpy as np
-import os
-import sys
-import pytz
-import re
-import csv
-import matplotlib.pyplot as plt
-import math
-import pickle
-from biosppy.signals.tools import filter_signal
-from concurrent import futures
 import argparse
-import matplotlib.pyplot as plt
-import random
-from tqdm import tqdm
-import wfdb
-import torch
-from scipy import signal
-from scipy.signal import decimate, resample
-from pathlib import Path
-import numpy as np
 
 """
 Based on https://code.engineering.queensu.ca/pritam/SSL-ECG/-/blob/master/implementation/signal_transformation_task.py
 """
 
-import numpy as np
-import math
 import cv2
 from sklearn.model_selection import train_test_split
 
@@ -148,11 +124,6 @@ def time_warp(signal, sampling_freq, pieces, stretch_factor, squeeze_factor):
 
 from torch.utils.data import Dataset
 import math
-import numpy as np
-from torchvision import transforms
-from PIL import Image
-import matplotlib.cm as cm
-import matplotlib.pyplot as plt
 import random
 
 class WaveformDataLoader(Dataset):
@@ -180,18 +151,11 @@ class WaveformDataLoader(Dataset):
 Adapted from https://github.com/hsd1503/resnet1d/blob/master/resnet1d.py
 """
 
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models.resnet import resnet18
-import numpy as np
-from collections import Counter
 from tqdm import tqdm
-from matplotlib import pyplot as plt
-from sklearn.metrics import classification_report 
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-    
+
+
 class MyConv1dPadSame(nn.Module):
     """
     extend nn.Conv1d to support SAME padding
@@ -495,23 +459,15 @@ class SimclrModel(nn.Module):
         out = self.g(feature)
         return F.normalize(out, dim=-1)
 
-    
-from sklearn.metrics import precision_score, recall_score, accuracy_score, roc_auc_score
-from pytorch_lightning.callbacks import ModelCheckpoint
-import pytorch_lightning.metrics.functional as metrics
+
 import pytorch_lightning as pl
-from torch.utils.data import WeightedRandomSampler
-import csv  
+import csv
 import torch.nn as nn
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
-from sklearn.preprocessing import StandardScaler, normalize, Normalizer
-from sklearn.compose import ColumnTransformer
 from pathlib import Path
-import datetime
-import os
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 

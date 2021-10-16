@@ -6,45 +6,15 @@ Applies the pretrained PCLR model onto the consolidated waveform file to retriev
 Example: python apply_pretrained_pclr.py -i /deep/group/pulmonary-embolism/v2/waveforms/15sec-500hz-1norm-3wpp/II -m /deep/group/pulmonary-embolism/v2/pretrained-models/pclr/PCLR_lead_II.h5
 """
 
-import datetime
-import pandas as pd
-import numpy as np
-import os
-import sys
-import pytz
-import re
-import csv
-import matplotlib.pyplot as plt
-import math
-import pickle
-from biosppy.signals.tools import filter_signal
-from concurrent import futures
 import argparse
-import matplotlib.pyplot as plt
-import random
-from tqdm import tqdm
-import wfdb
-import torch
-from scipy import signal
-from scipy.signal import decimate, resample
+import csv
 from pathlib import Path
 
-from tensorflow import keras
-from tensorflow.keras.layers import (
-    Input,
-    Conv1D,
-    MaxPooling1D,
-    Dropout,
-    BatchNormalization,
-    Activation,
-    Add,
-    Dense,
-    GlobalAveragePooling1D,
-)
-import tensorflow as tf
-from tensorflow.keras.models import Model
 import numpy as np
-
+import pandas as pd
+import tensorflow as tf
+from tensorflow import keras
+from tqdm import tqdm
 
 pd.set_option('display.max_columns', 500)
 
