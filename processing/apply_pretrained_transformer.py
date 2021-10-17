@@ -20,7 +20,7 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 
 
 def process_record(input_args):
-    i, total_rows, waveform_df, patient_id, waveforms, model = input_args
+    i, total_rows, waveform_df, patient_id, waveforms, remove_last_layer, model = input_args
     print(f"[{i}/{total_rows}] {patient_id} waveform...")
     
     try:
@@ -29,11 +29,12 @@ def process_record(input_args):
             waveforms_for_patient.append([waveforms[j]])
 
         input_tensor = torch.tensor(np.array(waveforms_for_patient), dtype=torch.float32).to(device)
-#         print(f"input={input_tensor.shape}")
-        embeddings = model(input_tensor).detach().cpu().numpy()
-#         print(f"output1={embeddings.shape}")
+        if remove_last_layer:
+            embeddings = model(input_tensor).detach().cpu().numpy()
+        else:
+            embeddings = model(input_tensor, None).detach().cpu().numpy()
         embeddings = np.mean(embeddings, axis=0)
-#         print(f"output2={embeddings.shape}")
+        del input_tensor
 
         return {
             "record_name": patient_id,
@@ -76,7 +77,7 @@ def run(args):
 
     waveforms = []
     for i, patient_id in tqdm(enumerate(patient_ids), disable=True):
-        input_args = [i, total_rows, df, patient_id, waveforms_numpy, model]
+        input_args = [i, total_rows, df, patient_id, waveforms_numpy, remove_last_layer, model]
         result = process_record(input_args)
         if result is not None:
             waveforms.append(result)

@@ -3,7 +3,7 @@
 """
 Script to prepare the ED-acquired Philips waveforms, producing a single file containing all the files that can be loaded as a tensor. 
 
-Example: python prepare_ed_waveforms.py -i /deep/group/pulmonary-embolism/v2/consolidated.filtered.csv -d /deep/group/pulmonary-embolism/v2/patient-data -o /deep/group/pulmonary-embolism/v2/waveforms -l 15 -f 500 -w II -p 1 -n
+Example: python prepare_ed_waveforms.py -i /deep/group/ed-monitor/patient_data_v9/consolidated.filtered.csv -d /deep/group/ed-monitor/patient_data_v9/patient-data -o /deep/group/ed-monitor/patient_data_v9/waveforms2 -l 15 -f 500 -n -w II -b First_trop_result_time-waveform_start_time -m 10 -p 1
 """
 
 import argparse
@@ -75,7 +75,7 @@ def process_record(input_args):
 
                     pointer = np.random.randint(start_offset, max(1, end_offset - window_size))
 
-                    waveform, quality = get_waveform(waveform_base, pointer, window_size, fs, should_normalize=should_normalize, bandpass_type=waveform_config["bandpass_type"], bandwidth=waveform_config["bandpass_freq"], target_fs=waveform_target_freq)
+                    waveform, quality = get_waveform(waveform_base, pointer, window_size, fs, should_normalize=should_normalize, bandpass_type=waveform_config["bandpass_type"], bandwidth=waveform_config["bandpass_freq"], target_fs=waveform_target_freq, ecg_quality_check=True)
                     if quality == 0:
                         print(f"[{i}/{total_rows}] {patient_id} waveform was empty at {pointer}. Trying again...")
                         attempt += 1
