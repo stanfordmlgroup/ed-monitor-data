@@ -394,8 +394,8 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
 
 
 def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
-              dropout_rate=0.2, start_from=0, num_inner_layers=2, batch_size=64, reg=None, 
-              save_predictions_path=None, verbose=0):
+             dropout_rate=0.2, num_inner_layers=2, batch_size=64,
+             save_predictions_path=None, verbose=0):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     model = MLP(embed_dim, dropout=dropout, inner_dim=inner_dim,
@@ -414,7 +414,7 @@ def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
     model.eval()
     
     test_dats = MLPDataLoader(df)
-    test_loader = DataLoader(test_dats, batch_size=self.batch_size, shuffle=False, num_workers=4)
+    test_loader = DataLoader(test_dats, batch_size=batch_size, shuffle=False, num_workers=4)
     
     final_patient_ids = []
     final_preds = []
@@ -422,25 +422,17 @@ def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
     
     for batch in tqdm(test_loader):
         x, y, patient_id = batch
-        x = x.to(device=device, dtype=torch.float)
-        logits = self(x)
-        loss = self.loss(logits, y.unsqueeze(1).float())
-        preds = torch.sigmoid(logits)
+        output = model(torch.tensor([[x]]).to(device=device, dtype=torch.float))
+        preds = torch.sigmoid(output)
         preds = torch.squeeze(preds)
         preds = preds.cpu()
         y = y.cpu().int()
         patient_id = patient_id.cpu()
         patient_id_list = [patient_id[i].item() for i in range(len(patient_id))]
 
-        # For our binary classification, we only have the sigmoid probabilities for the ACS class.
-        # Here, we add a new column for the 1-preds non-ACS class because the metrics below requires it.
-        #
-        preds_probs = torch.cat(((1 - preds.unsqueeze(0)), preds.unsqueeze(0)), dim=0).transpose(1, 0)
-
         final_patient_ids.extend(patient_id_list)
         final_preds.extend(preds.clone().detach().cpu().numpy().tolist())
         final_y.extend(y.clone().detach().cpu().numpy().tolist())
-        
 
     if verbose >= 1:
         print()
@@ -453,7 +445,6 @@ def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
         auroc_test = calculate_output_statistics(final_y, final_preds, show_plots=False)
     precision, recall, _ = precision_recall_curve(final_y, final_preds)
     auprc_alt = auc(recall, precision)
-    test_aurocs.append(auroc_test)
     if verbose >= 1:
         print(f"TEST AUROC = {auroc_test} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} pos")
 
