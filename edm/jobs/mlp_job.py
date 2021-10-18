@@ -5,7 +5,8 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from edm.utils.measures import perf_measure, calculate_output_statistics
 from edm.utils.embeddings import get_embedding_df, clean_additional_columns
-from edm.modules.mlp_module import train_mlp
+from edm.modules.mlp_module import train_mlp, test_mlp
+
 
 class MlpJob():
     
@@ -40,8 +41,7 @@ class MlpJob():
         self.save_predictions_path = save_predictions_path
         self.verbose = verbose
 
-    def run(self, batch_size=128, learning_rate=0.00001, dropout_rate=0, num_inner_layers=2, epochs=100, inner_dim=128):
-
+    def __preprocess(self):
         df_train = pd.read_csv(self.df_train_path, sep="\t", na_values='?')
         df_val = pd.read_csv(self.df_val_path, sep="\t", na_values='?')
         df_test = pd.read_csv(self.df_test_path, sep="\t", na_values='?')
@@ -72,8 +72,22 @@ class MlpJob():
 
         if self.verbose >= 1:
             print(f"Starting model training...")
+        return df_train_x, df_val_x, df_test_x
+
+    def run(self, batch_size=128, learning_rate=0.00001, dropout_rate=0, num_inner_layers=2, epochs=100, inner_dim=128):
+        df_train_x, df_val_x, df_test_x = self.__preprocess()
 
         return train_mlp(df_train_x, df_val_x, df_test_x, batch_size=batch_size, embed_dim=df_train_x.shape[1] - 2,
                          patience=None, inner_dim=inner_dim, learning_rate=learning_rate, dropout_rate=dropout_rate,
                          num_inner_layers=num_inner_layers, epochs=epochs, save_predictions_path=self.save_predictions_path, 
                          save_model=self.save_model, verbose=self.verbose)
+
+    def test(self, batch_size=128, dropout_rate=0, num_inner_layers=2, inner_dim=128):
+        # Note that the original train/val files still need to be provided during testing to ensure we properly
+        # clean the columns (e.g. normalize with respect to the train file)
+        df_train_x, df_val_x, df_test_x = self.__preprocess()
+
+        return test_mlp(df_train_x, df_val_x, df_test_x, batch_size=batch_size, embed_dim=df_train_x.shape[1] - 2,
+                        inner_dim=inner_dim, dropout_rate=dropout_rate,
+                        num_inner_layers=num_inner_layers, save_predictions_path=self.save_predictions_path,
+                        verbose=self.verbose)
