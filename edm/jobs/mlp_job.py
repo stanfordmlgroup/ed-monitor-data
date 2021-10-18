@@ -82,12 +82,12 @@ class MlpJob():
                          num_inner_layers=num_inner_layers, epochs=epochs, save_predictions_path=self.save_predictions_path, 
                          save_model=self.save_model, verbose=self.verbose)
 
-    def test(self, batch_size=128, dropout_rate=0, num_inner_layers=2, inner_dim=128):
+    def test(self, model_path, batch_size=128, dropout_rate=0, num_inner_layers=2, inner_dim=128):
         # Note that the original train/val files still need to be provided during testing to ensure we properly
         # clean the columns (e.g. normalize with respect to the train file)
-        df_train_x, df_val_x, df_test_x = self.__preprocess()
+        _, _, df_test_x = self.__preprocess()
 
-        return test_mlp(df_train_x, df_val_x, df_test_x, batch_size=batch_size, embed_dim=df_train_x.shape[1] - 2,
+        return test_mlp(df_test_x, model_path, batch_size=batch_size, embed_dim=df_test_x.shape[1] - 2,
                         inner_dim=inner_dim, dropout_rate=dropout_rate,
                         num_inner_layers=num_inner_layers, save_predictions_path=self.save_predictions_path,
                         verbose=self.verbose)
