@@ -21,6 +21,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_curve, auc, roc_auc_score, precision_recall_curve
 import torch
 import csv
+from tqdm import tqdm
 from pathlib import Path
 import pytorch_lightning as pl
 import matplotlib.pyplot as plt
@@ -390,3 +391,78 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
         plt.show()
 
     return auroc_train, auroc_val, auroc_test
+
+
+def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
+              dropout_rate=0.2, start_from=0, num_inner_layers=2, batch_size=64, reg=None, 
+              save_predictions_path=None, verbose=0):
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+    model = MLP(embed_dim, dropout=dropout, inner_dim=inner_dim,
+                         dropout_rate=dropout_rate, num_inner_layers=num_inner_layers).to(device)
+
+    if torch.cuda.is_available():
+        checkpoint = torch.load(model_path)
+    else:
+        checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+
+    state_dict = checkpoint['state_dict']
+    for k in list(state_dict.keys()):
+        # Remove the model prefix that Pytorch-Lightning applies
+        state_dict[k.replace("model.", "")] = state_dict.pop(k)
+    model.load_state_dict(state_dict)
+    model.eval()
+    
+    test_dats = MLPDataLoader(df)
+    test_loader = DataLoader(test_dats, batch_size=self.batch_size, shuffle=False, num_workers=4)
+    
+    final_patient_ids = []
+    final_preds = []
+    final_y = []
+    
+    for batch in tqdm(test_loader):
+        x, y, patient_id = batch
+        x = x.to(device=device, dtype=torch.float)
+        logits = self(x)
+        loss = self.loss(logits, y.unsqueeze(1).float())
+        preds = torch.sigmoid(logits)
+        preds = torch.squeeze(preds)
+        preds = preds.cpu()
+        y = y.cpu().int()
+        patient_id = patient_id.cpu()
+        patient_id_list = [patient_id[i].item() for i in range(len(patient_id))]
+
+        # For our binary classification, we only have the sigmoid probabilities for the ACS class.
+        # Here, we add a new column for the 1-preds non-ACS class because the metrics below requires it.
+        #
+        preds_probs = torch.cat(((1 - preds.unsqueeze(0)), preds.unsqueeze(0)), dim=0).transpose(1, 0)
+
+        final_patient_ids.extend(patient_id_list)
+        final_preds.extend(preds.clone().detach().cpu().numpy().tolist())
+        final_y.extend(y.clone().detach().cpu().numpy().tolist())
+        
+
+    if verbose >= 1:
+        print()
+        print()
+        print("============= TEST ROC CURVE ===============")
+
+    if verbose >= 1:
+        auroc_test = calculate_output_statistics(final_y, final_preds)
+    else:
+        auroc_test = calculate_output_statistics(final_y, final_preds, show_plots=False)
+    precision, recall, _ = precision_recall_curve(final_y, final_preds)
+    auprc_alt = auc(recall, precision)
+    test_aurocs.append(auroc_test)
+    if verbose >= 1:
+        print(f"TEST AUROC = {auroc_test} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} pos")
+
+    if save_predictions_path is not None:
+        Path(f"{save_predictions_path}").mkdir(parents=True, exist_ok=True)
+        with open(f"{save_predictions_path}/test.csv", "w") as fp:
+            writer = csv.writer(fp, delimiter=",")
+            writer.writerow(["patient_id", "preds", "actual"])
+            for ind in range(len(final_patient_ids)):
+                writer.writerow([final_patient_ids[ind], final_preds[ind], final_y[ind]])
+
+    return final_patient_ids, final_preds, final_y

@@ -5,9 +5,11 @@ Script to prepare the ED-acquired Philips waveforms, but also applies the Transf
 that are written to a single file.
 
 This is useful to produce the embeddings for consecutive waveforms, since
-the number of waveforms differ in each patient.
+the number of waveforms differ in each patient so there is no point in creating
+an intermediate waveform file that the `prepare_ed_waveforms.py` script will normally 
+do sine this file would be extremely large.
 
-Example: python prepare_apply_transformer_ed_waveforms.py -i /deep/group/ed-monitor/patient_data_v9/consolidated.filtered.test.txt -d /deep/group/ed-monitor/patient_data_v9/patient-data -o /deep/group/ed-monitor/patient_data_v9/waveforms -l 15 -f 500 -n -w II -b First_trop_result_time-waveform_start_time -mo /deep/u/tomjin/aihc-aut20-selfecg/prna/outputs-wide-64-15sec-bs64/saved_models/ctn/fold_1/ctn.tar -p 3
+Example: python prepare_apply_transformer_ed_waveforms.py -i /deep/group/ed-monitor/patient_data_v9/consolidated.filtered.test.txt -d /deep/group/ed-monitor/patient_data_v9/patient-data -o /deep/group/ed-monitor/patient_data_v9/waveforms -l 15 -f 500 -n -w II -b First_trop_result_time-waveform_start_time -mo /deep/u/tomjin/aihc-aut20-selfecg/prna/outputs-wide-64-15sec-bs64/saved_models/ctn/fold_1/ctn.tar -m 120 -p 3
 """
 
 import argparse
@@ -16,6 +18,8 @@ import datetime
 import pickle
 from concurrent import futures
 from pathlib import Path
+import time
+from shutil import copyfile
 
 import numpy as np
 import pandas as pd
@@ -131,7 +135,7 @@ def process_record(input_args):
                     lead_time += waveform_length
                     num_done += 1
                     
-                    if lead_time > max_lead_time:
+                    if max_lead_time is not None and lead_time > max_lead_time:
                         print(f"[{j}] [{i}/{total_rows}] {patient_id} early termination at lead_time={lead_time}", flush=True)
                         break
 
@@ -157,7 +161,7 @@ def process_record(input_args):
 
         return waveforms
     except Exception as e:
-        print("Unexpected error:", e)
+        print(f"[{j}] [{i}/{total_rows}] Unexpected error:", e)
         return None
     
 
@@ -181,12 +185,28 @@ def run(args):
     if not remove_last_layer:
         output_folder = f"{output_folder}-{deepfeat_sz}"
 
+    completed_pts = set()
     Path(output_folder).mkdir(parents=True, exist_ok=True)
     for w in waveform_types:
         Path(f"{output_folder}/{w}").mkdir(parents=True, exist_ok=True)
+
+        if Path(f"{output_folder}/{w}/summary.csv").is_file():
+            # This script could prematurely terminate due to OOM on the GPU if not enough resources are allocated.
+            # To remedy this, we will first check for the existence of the output file. 
+            # We will discount any patients who have already been processed and just continue with the remaining 
+            # patients to avoid reprocessing the files.
+            df_existing = pd.read_csv(f"{output_folder}/{w}/summary.csv")
+            print(f"Found existing file with shape {df_existing.shape} and {df_existing['patient_id'].unique().shape} existing pts")
+            completed_pts.update(df_existing['patient_id'].unique().tolist())
+    
+    print(f"Found {len(completed_pts)} completed patients")
     
     df = pd.read_csv(input_file, sep="\t")
     print(f"Found {input_file} with shape {df.shape}")
+    
+    df = df[~df["patient_id"].isin(completed_pts)]
+    print(f"After eliminating completed patients {input_file} has shape {df.shape}")
+    
     total_rows = len(df)
 
     if max_patients is not None:
@@ -219,16 +239,35 @@ def run(args):
 
     for w in waveform_types:
         output_embeddings = []
-        with open(f"{output_folder}/{w}/summary.csv", "w") as f:
-            writer = csv.writer(f, delimiter=',', quotechar='"')
-            headers = ["patient_id", "pointer", "quality", "lead_time"]
-            writer.writerow(headers)
-            for row in waveforms[w]:
-                writer.writerow([row["record_name"], row["pointer"], row["quality"], row["lead_time"]])
-                output_embeddings.append(row["embeddings"])
+        if len(completed_pts) > 0:
+            # Save copy as backup
+            print(f"Appending onto existing file...")
+            backup_time = str(int(time.time()))
+            copyfile(f"{output_folder}/{w}/embeddings.dat.npy", f"{output_folder}/{w}/embeddings.{backup_time}.dat.npy")
+            copyfile(f"{output_folder}/{w}/summary.csv", f"{output_folder}/{w}/summary.{backup_time}.csv")
 
-        output_tensor = np.array(output_embeddings)
-        np.save(f"{output_folder}/{w}/embeddings.dat", output_tensor)
+            with open(f"{output_folder}/{w}/summary.csv", "a") as f:
+                writer = csv.writer(f, delimiter=',', quotechar='"')
+                for row in waveforms[w]:
+                    writer.writerow([row["record_name"], row["pointer"], row["quality"], row["lead_time"]])
+                    output_embeddings.append(row["embeddings"])
+            
+            existing_tensor = np.load(f"{output_folder}/{w}/embeddings.dat.npy")
+
+            output_tensor = np.array(output_embeddings)
+            existing_tensor = np.concatenate((existing_tensor, output_tensor), axis=0)
+            np.save(f"{output_folder}/{w}/embeddings.dat", existing_tensor)
+        else:
+            with open(f"{output_folder}/{w}/summary.csv", "w") as f:
+                writer = csv.writer(f, delimiter=',', quotechar='"')
+                headers = ["patient_id", "pointer", "quality", "lead_time"]
+                writer.writerow(headers)
+                for row in waveforms[w]:
+                    writer.writerow([row["record_name"], row["pointer"], row["quality"], row["lead_time"]])
+                    output_embeddings.append(row["embeddings"])
+
+            output_tensor = np.array(output_embeddings)
+            np.save(f"{output_folder}/{w}/embeddings.dat", output_tensor)
     print(f"Output is written to: {output_folder}/{w}/summary.csv")
     print(f"Output is written to: {output_folder}/{w}/embeddings.dat.npy")
     print(f"END TIME: {datetime.datetime.now()}")
