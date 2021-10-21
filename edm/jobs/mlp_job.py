@@ -70,13 +70,13 @@ class MlpJob():
             if self.verbose >= 1:
                 print(f"Cleaned columns with additional_cols={self.additional_cols} impute={self.impute} normalize={self.normalize}")
 
-        if self.verbose >= 1:
-            print(f"Starting model training...")
         return df_train_x, df_val_x, df_test_x
 
     def run(self, batch_size=128, learning_rate=0.00001, dropout_rate=0, num_inner_layers=2, epochs=100, inner_dim=128):
         df_train_x, df_val_x, df_test_x = self.__preprocess()
 
+        if self.verbose >= 1:
+            print(f"Starting model training...")
         return train_mlp(df_train_x, df_val_x, df_test_x, batch_size=batch_size, embed_dim=df_train_x.shape[1] - 2,
                          patience=None, inner_dim=inner_dim, learning_rate=learning_rate, dropout_rate=dropout_rate,
                          num_inner_layers=num_inner_layers, epochs=epochs, save_predictions_path=self.save_predictions_path, 
@@ -87,6 +87,8 @@ class MlpJob():
         # clean the columns (e.g. normalize with respect to the train file)
         _, _, df_test_x = self.__preprocess()
 
+        if self.verbose >= 1:
+            print(f"Starting model testing...")
         return test_mlp(df_test_x, model_path, batch_size=batch_size, embed_dim=df_test_x.shape[1] - 2,
                         inner_dim=inner_dim, dropout_rate=dropout_rate,
                         num_inner_layers=num_inner_layers, save_predictions_path=self.save_predictions_path,

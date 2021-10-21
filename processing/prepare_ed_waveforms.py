@@ -66,7 +66,7 @@ def process_record(input_args):
             if waveform_type in info["supported_types"]:
                 window_size = int(waveform_length * fs)
                 attempt = 1
-                while num_waveforms_processed[waveform_type] < max_samples_per_patient and attempt < PATIENCE:
+                while num_waveforms_processed[waveform_type] < max_samples_per_patient:
 
                     start_offset = int(max(0, recommended_trim_start_sec * fs))
                     end_offset = int(min(len(waveform_base), recommended_trim_end_sec * fs))
@@ -76,7 +76,11 @@ def process_record(input_args):
                     pointer = np.random.randint(start_offset, max(1, end_offset - window_size))
 
                     waveform, quality = get_waveform(waveform_base, pointer, window_size, fs, should_normalize=should_normalize, bandpass_type=waveform_config["bandpass_type"], bandwidth=waveform_config["bandpass_freq"], target_fs=waveform_target_freq, ecg_quality_check=True)
-                    if quality == 0:
+                    
+                    if attempt >= PATIENCE:
+                        # We've run out of patience so we'll use whatever waveform we get
+                        print(f"[{i}/{total_rows}] {patient_id} waveform ran out of patience at {pointer}.")
+                    elif quality == 0:
                         print(f"[{i}/{total_rows}] {patient_id} waveform was empty at {pointer}. Trying again...")
                         attempt += 1
                         continue
@@ -94,6 +98,7 @@ def process_record(input_args):
 
                     pointer += window_size
                     num_waveforms_processed[waveform_type] += 1
+                assert len(num_waveforms_processed[waveform_type]) == max_samples_per_patient
 
         return waveforms
     except Exception as e:

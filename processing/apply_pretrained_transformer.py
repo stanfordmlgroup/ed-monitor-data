@@ -73,7 +73,7 @@ def run(args):
     print(f"Loaded model from {model_path}")
     
     print(f"Found {input_folder} with shape {df.shape}")
-    total_rows = len(df)
+    total_rows = len(df["record_name"].unique())
 
     waveforms = []
     for i, patient_id in tqdm(enumerate(patient_ids), disable=True):

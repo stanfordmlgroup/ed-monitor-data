@@ -32,26 +32,11 @@ def get_cohort_df(df, outcome_col="outcome", additional_cols=[]):
     return pd.DataFrame(output, columns=headers)
 
 def get_embedding_df(df, summary_df, waveforms, outcome_col="outcome", additional_cols=[]):
-    """
-    Returns a dataframe that concatenates the embeddings and any additional columns to use
-    as input into the downstream model.
-    
-    :param df: The dataframe of the patients (contains visit information, demographics, etc.)
-    :param summary_df: The dataframe that summarizes the relative positions of the patients in the waveform object
-    :param waveforms: The embeddings, in the order defined by the summary_df
-    :outcome_col: The column where the outcome is defined
-    :additional_cols: The columns which should be added to the output embedding
-    """
-    
-    patient_id_to_index = {}
-    for i, row in summary_df.iterrows():
-        patient_id_to_index[int(row["record_name"])] = i
-    
     embed_size = waveforms.shape[1]
     
     output = []
     
-    for i, row in df.iterrows():
+    for i, row in summary_df.iterrows():
         patient_id = int(row["patient_id"])
         outcome = row[outcome_col]
         if patient_id in patient_id_to_index:

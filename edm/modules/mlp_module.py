@@ -1,4 +1,3 @@
-
 from sklearn.metrics import precision_score, recall_score, accuracy_score, roc_auc_score
 from pytorch_lightning.callbacks import ModelCheckpoint
 import pytorch_lightning.metrics.functional as metrics
@@ -29,7 +28,7 @@ import matplotlib.pyplot as plt
 import torch.nn as nn
 from edm.models.mlp_model import MLP
 from edm.dataloaders.mlp_dataloader import MLPDataLoader
-from edm.utils.measures import perf_measure, calculate_output_statistics
+from edm.utils.measures import perf_measure, calculate_output_statistics, calculate_confidence_intervals
 
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -305,8 +304,10 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
     auprc_alt = auc(recall, precision)
     if verbose >= 1:
         auroc_train = calculate_output_statistics(final_y, final_preds)
+        calculate_confidence_intervals(final_y, final_preds)
     else:
         auroc_train = calculate_output_statistics(final_y, final_preds, show_plots=False)
+        calculate_confidence_intervals(final_y, final_preds)
     
     if save_predictions_path is not None:
         Path(f"{save_predictions_path}").mkdir(parents=True, exist_ok=True)
@@ -337,8 +338,10 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
     auprc_alt = auc(recall, precision)
     if verbose >= 1:
         auroc_val = calculate_output_statistics(final_y, final_preds)
+        calculate_confidence_intervals(final_y, final_preds)
     else:
         auroc_val = calculate_output_statistics(final_y, final_preds, show_plots=False)
+        calculate_confidence_intervals(final_y, final_preds)
     val_aurocs.append(auroc_val)
     if verbose >= 1:
         print(f"VAL AUROC = {auroc_val} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} pos")
@@ -362,8 +365,10 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
     final_preds, final_y = model.get_final_preds_and_y()
     if verbose >= 1:
         auroc_test = calculate_output_statistics(final_y, final_preds)
+        calculate_confidence_intervals(final_y, final_preds)
     else:
         auroc_test = calculate_output_statistics(final_y, final_preds, show_plots=False)
+        calculate_confidence_intervals(final_y, final_preds)
     precision, recall, _ = precision_recall_curve(final_y, final_preds)
     auprc_alt = auc(recall, precision)
     test_aurocs.append(auroc_test)
@@ -422,7 +427,8 @@ def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
     
     for batch in tqdm(test_loader):
         x, y, patient_id = batch
-        output = model(torch.tensor([[x]]).to(device=device, dtype=torch.float))
+        x = x.to(device=device, dtype=torch.float)
+        output = model(x)
         preds = torch.sigmoid(output)
         preds = torch.squeeze(preds)
         preds = preds.cpu()
@@ -441,8 +447,10 @@ def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
 
     if verbose >= 1:
         auroc_test = calculate_output_statistics(final_y, final_preds)
+        calculate_confidence_intervals(final_y, final_preds)
     else:
         auroc_test = calculate_output_statistics(final_y, final_preds, show_plots=False)
+        calculate_confidence_intervals(final_y, final_preds)
     precision, recall, _ = precision_recall_curve(final_y, final_preds)
     auprc_alt = auc(recall, precision)
     if verbose >= 1:
