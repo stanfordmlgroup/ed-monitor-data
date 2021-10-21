@@ -21,7 +21,7 @@ from edm.utils.waveforms import WAVEFORMS_OF_INTERST, get_waveform
 
 pd.set_option('display.max_columns', 500)
 
-PATIENCE = 10 # number of rounds before we give up trying to find a non-empty waveform
+PATIENCE = 30 # number of rounds before we give up trying to find a non-empty waveform
 
 
 def load_pkl_file(file_path):
