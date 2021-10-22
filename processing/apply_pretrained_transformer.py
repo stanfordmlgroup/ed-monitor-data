@@ -63,7 +63,7 @@ def run(args):
     print(f"Output folder will be: {output_folder}")
 
     df = pd.read_csv(f"{input_folder}/summary.csv")
-    waveforms_numpy = np.load(f"{input_folder}/waveforms.dat.npy")
+    waveforms_numpy = np.load(f"{input_folder}/waveforms.dat.npy", allow_pickle=True)
     patient_ids = set(df["record_name"].tolist())
     
     print(f"Loading model from {model_path}")

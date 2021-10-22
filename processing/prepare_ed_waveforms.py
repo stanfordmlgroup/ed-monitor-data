@@ -73,7 +73,7 @@ def process_record(input_args):
                     if sample_before_val is not None:
                         end_offset = min(end_offset, sample_before_val * fs)
 
-                    pointer = np.random.randint(start_offset, max(1, end_offset - window_size))
+                    pointer = np.random.randint(start_offset, max(start_offset + 1, end_offset - window_size))
 
                     waveform, quality = get_waveform(waveform_base, pointer, window_size, fs, should_normalize=should_normalize, bandpass_type=waveform_config["bandpass_type"], bandwidth=waveform_config["bandpass_freq"], target_fs=waveform_target_freq, ecg_quality_check=True)
                     
@@ -98,7 +98,8 @@ def process_record(input_args):
 
                     pointer += window_size
                     num_waveforms_processed[waveform_type] += 1
-                assert len(num_waveforms_processed[waveform_type]) == max_samples_per_patient
+                assert num_waveforms_processed[waveform_type] == max_samples_per_patient
+                print(f"[{i}/{total_rows}] {patient_id} waveform {waveform_type} completed")
 
         return waveforms
     except Exception as e:
