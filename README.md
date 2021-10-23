@@ -126,9 +126,6 @@ The column descriptions:
 - `outcome`: 1 if ACS, 0 otherwise.
 - `notes`: If the patient was processed successfully, this value is empty. Otherwise, a message is shown indicating why the patient was not processed. 
 
-Refer to this notebook:
-- [Post-Processing (V8 Data).ipynb](https://github.com/stanfordmlgroup/aihc-win21-ed-monitor/blob/main/notebooks/Post-Processing%20(V8%20Data).ipynb)
-
 #### Consolidated Folder Structure
 An example folder that contains all of the pre-processed waveforms is located at:
 ```
@@ -219,7 +216,7 @@ The `waveforms.dat.npy` is a single 2D NumPy array containing the extracted and 
 Waveforms are nice, but the real power comes from creating embeddings from a pre-trained deep learning model. To do this, we can run the following script:
 
 ```
-python -u /deep/u/tomjin/ed-monitor-data/processing/apply_pretrained_transformer.py -i /deep/group/ed-monitor/patient_data_v9/waveforms/15sec-500hz-1norm-10wpp/II -m /deep/u/tomjin/aihc-aut20-selfecg/prna/outputs-wide-64-15sec-bs64/saved_models/ctn/fold_1/ctn.tar -d 64
+python -u processing/apply_pretrained_transformer.py -i /deep/group/ed-monitor/patient_data_v9/waveforms/15sec-500hz-1norm-10wpp/II -m /deep/u/tomjin/aihc-aut20-selfecg/prna/outputs-wide-64-15sec-bs64/saved_models/ctn/fold_1/ctn.tar -d 64
 ```
 
 This script takes the waveform array produced previously and, for each waveform, runs it through the pretrained model provided as input. If there are multiple waveforms per patient, the embeddings will be averaged for the patient.
