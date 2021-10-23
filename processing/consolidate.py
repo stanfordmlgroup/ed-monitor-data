@@ -563,32 +563,14 @@ def load_exports_file(exports_file):
         end_time = datetime.datetime.strptime(end_time, '%m/%d/%y %H:%M:%S')
         end_time = end_time.astimezone(pytz.timezone('America/Vancouver'))
         
-        # 4/18: Temporary fix because the Feb/Mar files weren't moved to the expected location
-        #       and I don't have permissions to move them myself.
+        # Note:
+        # - `folder_path` is expected to be in the following format: /deep/group/ed-monitor/2020_08_23_2020_09_23
+        # - However, studies are actually located at: /deep/group/ed-monitor/2020_08_23_2020_09_23/data/2020_08_23_2020_09_23/STUDY-XXXXXXX
         #
-        if "2021_02_01_2021_02_28" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_02_01_2021_02_28")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_03_01_2021_03_31" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_03_01_2021_03_31")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_04_01_2021_05_12" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_04_01_2021_05_12")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_05_13_2021_05_31" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_05_13_2021_05_31")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_06_01_2021_06_30" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_06_01_2021_06_30")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_07_01_2021_07_31" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_07_01_2021_07_31")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_08_01_2021_09_16" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_08_01_2021_09_16")
-            study_folder = os.path.join(folder_path, study)
-        else:
-            study_folder = os.path.join(os.path.join(folder_path, "data"), study)
+        actual_date_range = folder_path.split("/")[-1]
+        folder_path = os.path.join(folder_path, f"data/{actual_date_range}")
+        study_folder = os.path.join(folder_path, study)
+
         if case not in patient_to_studies:
             patient_to_studies[case] = []
         patient_to_studies[case].append(study)

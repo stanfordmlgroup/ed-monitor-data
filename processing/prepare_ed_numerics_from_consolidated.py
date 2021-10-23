@@ -1,9 +1,20 @@
 #!/usr/bin/env python
 
 """
-Script to extract the numerics file given the consolidated file
+Script to extract the numerics file given the consolidated file. Outputs:
+- A summary.csv file containing the CSNs and length of data that was extracted
+- Folders containing the actual pickle object with the extracted data for each patient. Note that each patient pickle object is stored under subfolders based on the last two digits of the CSN.
 
 Example: python prepare_ed_numerics_from_consolidated.py -i /deep/group/pulmonary-embolism/v2/consolidated.filtered.csv -d /deep/group/ed-monitor/2020_08_23_2020_09_23,/deep/group/ed-monitor/2020_09_23_2020_11_30,/deep/group/ed-monitor/2020_11_30_2020_12_31,/deep/group/ed-monitor/2021_01_01_2021_01_31,/deep/group/ed-monitor/2021_02_01_2021_02_28,/deep/group/ed-monitor/2021_03_01_2021_03_31,/deep/group/ed-monitor/2021_04_01_2021_05_12,/deep/group/ed-monitor/2021_05_13_2021_05_31,/deep/group/ed-monitor/2021_06_01_2021_06_30,/deep/group/ed-monitor/2021_07_01_2021_07_31 -o /deep/group/pulmonary-embolism/v2 -p 3
+
+```
+summary.csv
+
+csn,HR_len,RR_len,SpO2_len,NBPs_len,NBPd_len
+131298553644,6854,6849,7861,10,10
+131296506244,919,1029,555,0,0
+```
+
 """
 
 import datetime
@@ -48,32 +59,13 @@ def load_file(patient_dirs, study):
     for folder_path in patient_dirs:
         # We need to look into multiple patient directories to find out where the study is actually located
         
-        # 4/18: Temporary fix because the Feb/Mar files weren't moved to the expected location
-        #       and I don't have permissions to move them myself.
+        # Note:
+        # - `folder_path` is expected to be in the following format: /deep/group/ed-monitor/2020_08_23_2020_09_23
+        # - However, studies are actually located at: /deep/group/ed-monitor/2020_08_23_2020_09_23/data/2020_08_23_2020_09_23/STUDY-XXXXXXX
         #
-        if "2021_02_01_2021_02_28" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_02_01_2021_02_28")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_03_01_2021_03_31" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_03_01_2021_03_31")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_04_01_2021_05_12" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_04_01_2021_05_12")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_05_13_2021_05_31" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_05_13_2021_05_31")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_06_01_2021_06_30" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_06_01_2021_06_30")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_07_01_2021_07_31" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_07_01_2021_07_31")
-            study_folder = os.path.join(folder_path, study)
-        elif "2021_08_01_2021_09_16" in folder_path:
-            folder_path = os.path.join(folder_path, "data/2021_08_01_2021_09_16")
-            study_folder = os.path.join(folder_path, study)
-        else:
-            study_folder = os.path.join(os.path.join(folder_path, "data"), study)
+        actual_date_range = folder_path.split("/")[-1]
+        folder_path = os.path.join(folder_path, f"data/{actual_date_range}")
+        study_folder = os.path.join(folder_path, study)
         
         if os.path.isdir(study_folder):
             for f in sorted(listdir(study_folder)):
@@ -167,7 +159,8 @@ def run(args):
                 break
 
     output_obj = {
-        "patient_ids": []
+        "patient_ids": [],
+        "time": []
     }
     for col in COLUMNS:
         # Will be uneven in length
