@@ -263,7 +263,7 @@ Date,Time,Diff,Sequence,SpO2,Pulse (SpO2),NBPs,NBPd,NBPm,Perf,Normal Beats,Supra
 07/02/2021, 21:05:33.143 -07:00, 00:00:43.040,678557133280,99,76,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 ```
 
-Because this file is messy and sometimes difficult to follow, we can extract the data out for each patient who we are interested in. This can be run using the following command, using the filtered consolidated file from above as a starting point:
+Because this file is messy and sometimes difficult to follow, we can extract the data out for each patient who we are interested in. This can be run using the following command, using the matched cohort file from one of the earlieset steps as a starting point. Note that the example below uses a different folder than previous arguments, but that is because we never ran the numerics extraction on the myocardial injury project.
 
 ```
 python prepare_ed_numerics_from_matched_cohort.py -i /deep/group/physiologic-states/v1/matched-cohort.csv -d /deep/group/ed-monitor/2020_08_23_2020_09_23,/deep/group/ed-monitor/2020_09_23_2020_11_30,/deep/group/ed-monitor/2020_11_30_2020_12_31,/deep/group/ed-monitor/2021_01_01_2021_01_31,/deep/group/ed-monitor/2021_02_01_2021_02_28,/deep/group/ed-monitor/2021_03_01_2021_03_31,/deep/group/ed-monitor/2021_04_01_2021_05_12,/deep/group/ed-monitor/2021_05_13_2021_05_31,/deep/group/ed-monitor/2021_06_01_2021_06_30,/deep/group/ed-monitor/2021_07_01_2021_07_31 -o /deep/group/physiologic-states/v1/processed -p 100
@@ -319,3 +319,7 @@ Each pkl file contains the folowing keys (which may change depending on what fie
 - `NBPs-time`: A list of date time objects of when each measure was taken. Corresponds to the NBPs list.
 - `NBPd`: A list of recorded non-invasive diastolic blood pressure values.
 - `NBPd-time`: A list of date time objects of when each measure was taken. Corresponds to the NBPd list.
+
+## Training
+
+Refer to [this notebook](https://github.com/stanfordmlgroup/aihc-win21-ed-monitor/blob/main/notebooks/v9/Prediction%20-%20Transformer.ipynb) on how you can use the extracted embeddings to train downstream models using the `edm` library.
