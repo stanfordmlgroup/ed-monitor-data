@@ -7,7 +7,7 @@ Files are written out to:
 - /deep/group/physiologic-states/v1/processed/<hash>/<CSN>.pkl
 where <hash> is the last two characters of the CSN
 
-Example: python prepare_ed_numerics_from_matched_cohort.py -i /deep/group/physiologic-states/v1/matched-cohort.csv -d /deep/group/ed-monitor/2020_08_23_2020_09_23,/deep/group/ed-monitor/2020_09_23_2020_11_30,/deep/group/ed-monitor/2020_11_30_2020_12_31,/deep/group/ed-monitor/2021_01_01_2021_01_31,/deep/group/ed-monitor/2021_02_01_2021_02_28,/deep/group/ed-monitor/2021_03_01_2021_03_31,/deep/group/ed-monitor/2021_04_01_2021_05_12,/deep/group/ed-monitor/2021_05_13_2021_05_31,/deep/group/ed-monitor/2021_06_01_2021_06_30,/deep/group/ed-monitor/2021_07_01_2021_07_31 -o /deep/group/physiologic-states/v1/test -p 100
+Example: python prepare_ed_numerics_from_matched_cohort.py -i /deep/group/physiologic-states/v1/matched-cohort.csv -d /deep/group/ed-monitor/2020_08_23_2020_09_23,/deep/group/ed-monitor/2020_09_23_2020_11_30,/deep/group/ed-monitor/2020_11_30_2020_12_31,/deep/group/ed-monitor/2021_01_01_2021_01_31,/deep/group/ed-monitor/2021_02_01_2021_02_28,/deep/group/ed-monitor/2021_03_01_2021_03_31,/deep/group/ed-monitor/2021_04_01_2021_05_12,/deep/group/ed-monitor/2021_05_13_2021_05_31,/deep/group/ed-monitor/2021_06_01_2021_06_30,/deep/group/ed-monitor/2021_07_01_2021_07_31,/deep/group/ed-monitor/2021_06_01_2021_06_30,/deep/group/ed-monitor/2021_08_01_2021_09_16 -o /deep/group/physiologic-states/v1/test -p 100
 """
 
 import datetime
@@ -44,7 +44,8 @@ COLUMNS = [
     "SpO2",
     "RR",
     "NBPs",
-    "NBPd"
+    "NBPd",
+    "btbRRInt_ms"
 ]
 
 def load_file(study_to_patient_dir, study):
