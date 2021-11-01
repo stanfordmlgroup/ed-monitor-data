@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from sklearn.metrics import roc_curve, auc
 from edm.utils.delong import delong_roc_variance
+from tqdm import tqdm
 
 def perf_measure(y_actual, y_hat):
     y_hat = [round(a) for a in y_hat]
@@ -27,13 +28,11 @@ def perf_measure(y_actual, y_hat):
 def calculate_output_statistics(y_actual, y_pred, show_plots=True):
 
     tp, fp, tn, fn = perf_measure(y_actual, y_pred)
-    print(f"fp={fp}, fn={fn}, tn={tn}, tp={tp}")
     actual_positives = tp + fn
     actual_negatives = tn + fp
 
     fpr_keras, tpr_keras, thresholds_keras = roc_curve(y_actual, y_pred)
     auc_keras = auc(fpr_keras, tpr_keras)
-    y_pred_vals = np.array(y_pred) >= 0.5
 
     if show_plots:
         a4_dims = (5, 5)
@@ -48,18 +47,46 @@ def calculate_output_statistics(y_actual, y_pred, show_plots=True):
     
     return auc_keras
 
-def calculate_confidence_intervals(y_actual, y_pred, alpha = 0.95):
-    auc, auc_cov = delong_roc_variance(np.array(y_actual), np.array(y_pred))
-    
-    auc_std = np.sqrt(auc_cov)
-    lower_upper_q = np.abs(np.array([0, 1]) - (1 - alpha) / 2)
+def get_bootstrap_metrics(orig_preds, orig_actual, bootstrap_samples=10000):
+    bootstrap_aucs = []
+    for j in tqdm(range(bootstrap_samples)):
+        bootstrap_indices = np.random.choice(range(len(orig_preds)), size=len(orig_preds), replace=True)
+        preds = [orig_preds[i] for i in bootstrap_indices]
+        actual = [orig_actual[i] for i in bootstrap_indices]
 
-    ci = stats.norm.ppf(
-        lower_upper_q,
-        loc=auc,
-        scale=auc_std)
+        preds = np.array(preds)
+        actual = np.array(actual)
+        auc = calculate_output_statistics(actual, preds, show_plots=False)
+        
+        bootstrap_aucs.append(auc)
 
-    ci[ci > 1] = 1
+    return bootstrap_aucs
 
-    print(f"AUC={auc}, AUC COV={auc_cov}, 95% CI={ci}")
-    return ci
+def calculate_confidence_intervals(y_actual, y_pred, ci_type="bootstrap", alpha=0.95):
+    if ci_type == "bootstrap":
+        bootstrap_aucs = get_bootstrap_metrics(y_pred, y_actual)
+
+        p = ((1.0-alpha)/2.0) * 100
+        lower = max(0.0, np.percentile(bootstrap_aucs, p))
+        p = (alpha+((1.0-alpha)/2.0)) * 100
+        upper = min(1.0, np.percentile(bootstrap_aucs, p))
+
+        ci = [lower, upper]
+
+        print(f"[Bootstrap] 95% CI={ci}")
+        return ci
+    else:
+        auc, auc_cov = delong_roc_variance(np.array(y_actual), np.array(y_pred))
+
+        auc_std = np.sqrt(auc_cov)
+        lower_upper_q = np.abs(np.array([0, 1]) - (1 - alpha) / 2)
+
+        ci = stats.norm.ppf(
+            lower_upper_q,
+            loc=auc,
+            scale=auc_std)
+
+        ci[ci > 1] = 1
+
+        print(f"[DeLong] AUC={auc}, AUC COV={auc_cov}, 95% CI={ci}")
+        return ci

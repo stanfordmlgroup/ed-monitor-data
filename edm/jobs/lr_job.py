@@ -3,7 +3,7 @@ import sys
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from edm.utils.measures import perf_measure, calculate_output_statistics
+from edm.utils.measures import perf_measure, calculate_output_statistics, calculate_confidence_intervals
 from edm.utils.embeddings import get_embedding_df
 
 class LogisticRegressionJob():
@@ -61,17 +61,21 @@ class LogisticRegressionJob():
         print(f"=== TRAIN ===")
         y_train_pred = clf.predict_proba(df_train_x)[:, 1]
         auroc_train = calculate_output_statistics(df_train_y.tolist(), y_train_pred)
+        calculate_confidence_intervals(df_train_y.tolist(), y_train_pred, ci_type="delong")
 
         print()
         print()
         print(f"=== VAL ===")
         y_val_pred = clf.predict_proba(df_val_x)[:, 1]
         auroc_val = calculate_output_statistics(df_val_y.tolist(), y_val_pred)
+        calculate_confidence_intervals(df_val_y.tolist(), y_val_pred, ci_type="delong")
 
         print()
         print()
         print(f"=== TEST ===")
         y_test_pred = clf.predict_proba(df_test_x)[:, 1]
         auroc_test = calculate_output_statistics(df_test_y.tolist(), y_test_pred)
+        calculate_confidence_intervals(df_test_y.tolist(), y_test_pred, ci_type="delong")
+        calculate_confidence_intervals(df_test_y.tolist(), y_test_pred, ci_type="bootstrap")
         
         return auroc_train, auroc_val, auroc_test
