@@ -83,11 +83,11 @@ class Transformer(nn.Module):
 
 # 15 second model
 class CTN(nn.Module):
-    def __init__(self, d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_feats, nb_demo, classes):
+    def __init__(self, d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_feats, nb_demo, classes, leads=1):
         super(CTN, self).__init__()
 
         self.encoder = nn.Sequential(  # downsampling factor = 20
-            nn.Conv1d(1, 128, kernel_size=14, stride=3, padding=2, bias=False),
+            nn.Conv1d(leads, 128, kernel_size=14, stride=3, padding=2, bias=False),
             nn.BatchNorm1d(128),
             nn.ReLU(inplace=True),
             nn.Conv1d(128, 256, kernel_size=14, stride=3, padding=0, bias=False),
@@ -132,8 +132,8 @@ class CTN(nn.Module):
         return out
 
 
-def load_best_model(model_loc, deepfeat_sz, remove_last_layer=True):
-    model = CTN(d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_feats, nb_demo, classes).to(device)
+def load_best_model(model_loc, deepfeat_sz, remove_last_layer=True, leads=1):
+    model = CTN(d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_feats, nb_demo, classes, leads).to(device)
     model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
 
     if model_loc is not None:

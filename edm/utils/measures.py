@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, precision_recall_curve
 from edm.utils.delong import delong_roc_variance
 from tqdm import tqdm
 
@@ -34,6 +34,9 @@ def calculate_output_statistics(y_actual, y_pred, show_plots=True):
     fpr_keras, tpr_keras, thresholds_keras = roc_curve(y_actual, y_pred)
     auc_keras = auc(fpr_keras, tpr_keras)
 
+    precision, recall, _ = precision_recall_curve(y_actual, y_pred)
+    auprc_alt = auc(recall, precision)
+
     if show_plots:
         a4_dims = (5, 5)
         fig, ax = plt.subplots(figsize=a4_dims)
@@ -45,10 +48,11 @@ def calculate_output_statistics(y_actual, y_pred, show_plots=True):
         ax.legend(loc='best')
         plt.show()
     
-    return auc_keras
+    return auc_keras, auprc_alt
 
 def get_bootstrap_metrics(orig_preds, orig_actual, bootstrap_samples=10000):
     bootstrap_aucs = []
+    bootstrap_auprcs = []
     for j in tqdm(range(bootstrap_samples)):
         bootstrap_indices = np.random.choice(range(len(orig_preds)), size=len(orig_preds), replace=True)
         preds = [orig_preds[i] for i in bootstrap_indices]
@@ -56,37 +60,59 @@ def get_bootstrap_metrics(orig_preds, orig_actual, bootstrap_samples=10000):
 
         preds = np.array(preds)
         actual = np.array(actual)
-        auc = calculate_output_statistics(actual, preds, show_plots=False)
+        auroc, auprc = calculate_output_statistics(actual, preds, show_plots=False)
         
-        bootstrap_aucs.append(auc)
+        bootstrap_aucs.append(auroc)
+        bootstrap_auprcs.append(auprc)
 
-    return bootstrap_aucs
+    return bootstrap_aucs, bootstrap_auprcs
 
 def calculate_confidence_intervals(y_actual, y_pred, ci_type="bootstrap", alpha=0.95):
     if ci_type == "bootstrap":
-        bootstrap_aucs = get_bootstrap_metrics(y_pred, y_actual)
+        bootstrap_aucs, bootstrap_auprcs = get_bootstrap_metrics(y_pred, y_actual)
 
         p = ((1.0-alpha)/2.0) * 100
         lower = max(0.0, np.percentile(bootstrap_aucs, p))
         p = (alpha+((1.0-alpha)/2.0)) * 100
         upper = min(1.0, np.percentile(bootstrap_aucs, p))
 
-        ci = [lower, upper]
+        auc_ci = [round(lower, 3), round(upper, 3)]
 
-        print(f"[Bootstrap] 95% CI={ci}")
-        return ci
+        fpr_keras, tpr_keras, thresholds_keras = roc_curve(y_actual, y_pred)
+        auc_keras = auc(fpr_keras, tpr_keras)
+
+        p = ((1.0-alpha)/2.0) * 100
+        lower = max(0.0, np.percentile(bootstrap_auprcs, p))
+        p = (alpha+((1.0-alpha)/2.0)) * 100
+        upper = min(1.0, np.percentile(bootstrap_auprcs, p))
+
+        auprc_ci = [round(lower, 3), round(upper, 3)]
+
+        precision, recall, _ = precision_recall_curve(y_actual, y_pred)
+        auprc = auc(recall, precision)
+
+        print(f"[Bootstrap] AUC={round(auc_keras, 3)}, 95% CI={auc_ci}; AUPRC={round(auprc, 3)}, 95% CI={auprc_ci}")
+        return auc_ci, auprc_ci
     else:
-        auc, auc_cov = delong_roc_variance(np.array(y_actual), np.array(y_pred))
+        auroc, auc_cov = delong_roc_variance(np.array(y_actual), np.array(y_pred))
 
         auc_std = np.sqrt(auc_cov)
         lower_upper_q = np.abs(np.array([0, 1]) - (1 - alpha) / 2)
 
         ci = stats.norm.ppf(
             lower_upper_q,
-            loc=auc,
+            loc=auroc,
             scale=auc_std)
 
-        ci[ci > 1] = 1
+        if ci[0] > 1:
+            ci[0] = 1
+        if ci[1] > 1:
+            ci[1] = 1
 
-        print(f"[DeLong] AUC={auc}, AUC COV={auc_cov}, 95% CI={ci}")
-        return ci
+        ci = [round(ci[0], 3), round(ci[1], 3)]
+        
+        precision, recall, _ = precision_recall_curve(y_actual, y_pred)
+        auprc = auc(recall, precision)
+
+        print(f"[DeLong] AUC={round(auroc, 3)}, AUC COV={round(auc_cov, 3)}, 95% CI={ci}; AUPRC={round(auprc, 3)}, 95% CI=N/A")
+        return ci, None

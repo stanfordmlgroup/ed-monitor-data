@@ -2,11 +2,11 @@ import os
 import sys
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from edm.utils.measures import perf_measure, calculate_output_statistics, calculate_confidence_intervals
 from edm.utils.embeddings import get_embedding_df
 
-class LogisticRegressionJob():
+class RandomForestJob():
     
     def __init__(self, df_train_path, df_val_path, df_test_path, summary_path, embeddings_path):
         """
@@ -22,7 +22,7 @@ class LogisticRegressionJob():
         self.summary_path = summary_path
         self.embeddings_path = embeddings_path
 
-    def run(self, max_iter=1000, class_weight="balanced", run_bootstrap_ci=True):
+    def run(self, class_weight="balanced", max_depth=None, run_bootstrap_ci=True):
 
         df_train = pd.read_csv(self.df_train_path, sep="\t", na_values='?')
         df_val = pd.read_csv(self.df_val_path, sep="\t", na_values='?')
@@ -53,7 +53,7 @@ class LogisticRegressionJob():
         df_test_x = df_test_x.drop(["patient_id", "outcome"], axis=1)
 
         print(f"Starting model training...")
-        clf = LogisticRegression(random_state=42, class_weight=class_weight, max_iter=max_iter)
+        clf = RandomForestClassifier(random_state=42, class_weight=class_weight, max_depth=max_depth)
         clf.fit(df_train_x, df_train_y)
 
         print()

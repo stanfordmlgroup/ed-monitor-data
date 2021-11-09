@@ -248,7 +248,7 @@ class EDModule(pl.LightningModule):
 def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64, embed_dim=322,
               dropout_rate=0.2, learning_rate=0.001, start_from=0,
               num_inner_layers=2, batch_size=64, reg=None, epochs=200,
-              verbose=0, save_model=False, save_predictions_path=None, show_df_preview=False):
+              verbose=0, save_model=False, save_predictions_path=None, run_bootstrap_ci=True, show_df_preview=False):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     pl.seed_everything(1234)
@@ -366,11 +366,13 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
     if verbose >= 1:
         auroc_test = calculate_output_statistics(final_y, final_preds)
         calculate_confidence_intervals(final_y, final_preds, ci_type="delong")
-        calculate_confidence_intervals(final_y, final_preds, ci_type="bootstrap")
+        if run_bootstrap_ci:
+            calculate_confidence_intervals(final_y, final_preds, ci_type="bootstrap")
     else:
         auroc_test = calculate_output_statistics(final_y, final_preds, show_plots=False)
         calculate_confidence_intervals(final_y, final_preds, ci_type="delong")
-        calculate_confidence_intervals(final_y, final_preds, ci_type="bootstrap")
+        if run_bootstrap_ci:
+            calculate_confidence_intervals(final_y, final_preds, ci_type="bootstrap")
     precision, recall, _ = precision_recall_curve(final_y, final_preds)
     auprc_alt = auc(recall, precision)
     test_aurocs.append(auroc_test)

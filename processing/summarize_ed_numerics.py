@@ -34,13 +34,14 @@ def run(args):
                         spo2_len = len(b["SpO2"])
                         nbps_len = len(b["NBPs"])
                         nbpd_len = len(b["NBPd"])
-                        rows.append([name.replace(".pkl", ""), str(hr_len), str(rr_len), str(spo2_len), str(nbps_len), str(nbpd_len)])
+                        btb_len = len(b["btbRRInt_ms"])
+                        rows.append([name.replace(".pkl", ""), str(hr_len), str(rr_len), str(spo2_len), str(nbps_len), str(nbpd_len), str(btb_len)])
                 except:
                     print(f"Could not load file {name}")
 
     with open(f"{input_folder}/summary.csv", "w") as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
-        writer.writerow(["csn", "HR_len", "RR_len", "SpO2_len", "NBPs_len", "NBPd_len"])
+        writer.writerow(["csn", "HR_len", "RR_len", "SpO2_len", "NBPs_len", "NBPd_len", "btb_len"])
         for line in rows:
             writer.writerow(line)
 

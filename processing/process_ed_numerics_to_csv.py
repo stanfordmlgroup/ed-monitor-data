@@ -38,7 +38,8 @@ COLS = [
     "RR",
     "SpO2",
     "NBPs",
-    "NBPd"
+    "NBPd",
+    "btbRRInt_ms"
 ]
 
 def process_record(input_args):
