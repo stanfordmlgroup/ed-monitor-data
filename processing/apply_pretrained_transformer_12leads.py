@@ -36,12 +36,19 @@ def normalize(seq, smooth=1e-8):
 
 
 def process_record(input_args):
-    i, total_rows, csn, waveform, remove_last_layer, model = input_args
+    i, total_rows, csn, waveform, remove_last_layer, model, lead = input_args
     print(f"[{i}/{total_rows}] {csn} waveform...")
 
     try:
-        data = waveform[:, :5000]
-        assert data.shape[0] == 12
+        if lead is None:
+            data = waveform[:, :5000]
+            assert data.shape[0] == 12
+        elif lead == "II":
+            data = waveform[1:2, :5000]
+            assert data.shape[0] == 1
+        else:
+            raise NotImplementedError()
+        
         assert data.shape[1] == 5000
         data = apply_filter(data, [3, 45])
         data = normalize(data)
@@ -72,11 +79,18 @@ def run(args):
     remove_last_layer = bool(int(args.remove_last_layer))
     deepfeat_sz = int(args.deepfeat_sz)
     max_patients = int(args.max_patients) if args.max_patients is not None else None
+    lead = args.lead
 
     if remove_last_layer:
-        output_folder = f"{output_folder}/transformer-{deepfeat_sz}"
+        if lead is None:
+            output_folder = f"{output_folder}/transformer-{deepfeat_sz}"
+        else:
+            output_folder = f"{output_folder}/transformer-{deepfeat_sz}-{lead}"
     else:
-        output_folder = f"{output_folder}/transformer-{deepfeat_sz}-logits"
+        if lead is None:
+            output_folder = f"{output_folder}/transformer-{deepfeat_sz}-logits"
+        else:
+            output_folder = f"{output_folder}/transformer-{deepfeat_sz}-{lead}-logits"
 
     Path(output_folder).mkdir(parents=True, exist_ok=True)
     print(f"Loading file from {waveform_file}")
@@ -90,8 +104,11 @@ def run(args):
     patient_ids = set(df_consolidated["patient_id"].tolist())
 
     print(f"Loading model from {model_path}")
-
-    model = load_best_model(model_path, deepfeat_sz=deepfeat_sz, remove_last_layer=remove_last_layer, leads=12)
+    
+    if lead is None:
+        model = load_best_model(model_path, deepfeat_sz=deepfeat_sz, remove_last_layer=remove_last_layer, leads=12)
+    else:
+        model = load_best_model(model_path, deepfeat_sz=deepfeat_sz, remove_last_layer=remove_last_layer)
     model.eval()
     print(f"Loaded model from {model_path}")
 
@@ -115,7 +132,7 @@ def run(args):
     output = []
     for i, patient_id in tqdm(enumerate(patient_ids), disable=True):
         if patient_id in csn_to_index:
-            input_args = [i, total_rows, patient_id, waveforms[csn_to_index[patient_id]], remove_last_layer, model]
+            input_args = [i, total_rows, patient_id, waveforms[csn_to_index[patient_id]], remove_last_layer, model, lead]
             result = process_record(input_args)
             if result is not None:
                 output.append(result)
@@ -168,6 +185,9 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--remove-last-layer',
                         default=1,
                         help='Set to be 1 if we wish to remove last layer and create embeddings. 0 if we want the ECG classifications.')
+    parser.add_argument('-l', '--lead',
+                        default=None,
+                        help='Set this value if you want to use a single-lead from the 12-lead ECG.')
 
     args = parser.parse_args()
 
