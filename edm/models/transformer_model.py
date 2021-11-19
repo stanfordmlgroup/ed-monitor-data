@@ -132,8 +132,8 @@ class CTN(nn.Module):
         return out
 
 
-def load_best_model(model_loc, deepfeat_sz, remove_last_layer=True, leads=1):
-    model = CTN(d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_feats, nb_demo, classes, leads).to(device)
+def load_best_model(model_loc, deepfeat_sz, remove_last_layer=True, leads=1, output_classes=classes):
+    model = CTN(d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_feats, nb_demo, output_classes, leads).to(device)
     model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
 
     if model_loc is not None:

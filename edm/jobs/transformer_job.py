@@ -5,10 +5,10 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from edm.utils.measures import perf_measure, calculate_output_statistics
 from edm.utils.embeddings import get_embedding_df, clean_additional_columns
-from edm.modules.mlp_module import train_mlp, test_mlp
+from edm.modules.transformer_module import train_transformer, test_transformer
 
 
-class MlpJob():
+class TransformerJob():
     
     def __init__(self, df_train_path, df_val_path, df_test_path, summary_path, embeddings_path, 
                  additional_cols=[], ordinal_cols=[], impute=True, normalize=True, 
@@ -78,7 +78,7 @@ class MlpJob():
 
         if self.verbose >= 1:
             print(f"Starting model training...")
-        return train_mlp(df_train_x, df_val_x, df_test_x, batch_size=batch_size, embed_dim=df_train_x.shape[1] - 2,
+        return train_transformer(df_train_x, df_val_x, df_test_x, batch_size=batch_size, embed_dim=df_train_x.shape[1] - 2,
                          patience=patience, inner_dim=inner_dim, learning_rate=learning_rate, dropout_rate=dropout_rate,
                          num_inner_layers=num_inner_layers, epochs=epochs, save_predictions_path=self.save_predictions_path, 
                          save_model=self.save_model, run_bootstrap_ci=self.run_bootstrap_ci, verbose=self.verbose)
@@ -88,9 +88,8 @@ class MlpJob():
         # clean the columns (e.g. normalize with respect to the train file)
         _, _, df_test_x = self.__preprocess()
 
-        if self.verbose >= 1:
-            print(f"Starting model testing...")
-        return test_mlp(df_test_x, model_path, batch_size=batch_size, embed_dim=df_test_x.shape[1] - 2,
+        print(f"Starting model testing...")
+        return test_transformer(df_test_x, model_path, batch_size=batch_size, embed_dim=df_test_x.shape[1] - 2,
                         inner_dim=inner_dim, dropout_rate=dropout_rate,
                         num_inner_layers=num_inner_layers, save_predictions_path=self.save_predictions_path,
                         verbose=self.verbose)

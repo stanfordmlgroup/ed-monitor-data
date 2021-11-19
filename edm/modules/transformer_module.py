@@ -27,17 +27,18 @@ import matplotlib.pyplot as plt
 
 import torch.nn as nn
 from edm.models.mlp_model import MLP
-from edm.dataloaders.mlp_dataloader import MLPDataLoader
+from edm.dataloaders.transformer_dataloader import TransformerDataLoader
+from edm.models.transformer_model import load_best_model
 from edm.utils.measures import perf_measure, calculate_output_statistics, calculate_confidence_intervals
 
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     
-class EDModule(pl.LightningModule):
+class TransformerModule(pl.LightningModule):
 
-    def __init__(self, df_train, df_val, df_test, embed_dim=322,
+    def __init__(self, df_train, df_val, df_test, embed_dim=322, deepfeat_sz=64,
                  batch_size=64, fold_num=0, learning_rate=0.001, reg=None,
-                 num_inner_layers=2, dropout_rate=0.2, 
+                 num_inner_layers=2, dropout_rate=0.2, remove_last_layer=False,
                  dropout=True, inner_dim=64, balanced_training=False,
                  verbose=0):
 
@@ -46,6 +47,7 @@ class EDModule(pl.LightningModule):
         self.df_train = df_train
         self.df_val = df_val
         self.df_test = df_test
+        self.output_classes = [1]
         
         self.fold_num = fold_num
         self.learning_rate = learning_rate
@@ -69,14 +71,16 @@ class EDModule(pl.LightningModule):
         self.batch_size = batch_size
         self.epoch = 0
         self.reg = reg
+        self.deepfeat_sz = deepfeat_sz
+        self.remove_last_layer = remove_last_layer
         self.balanced_training = balanced_training
         self.verbose = verbose
         self.reset_final_preds_and_y()
-        self.model = MLP(embed_dim, dropout=self.dropout, inner_dim=self.inner_dim,
-                             dropout_rate=self.dropout_rate, num_inner_layers=self.num_inner_layers)
+
+        self.model = load_best_model(None, deepfeat_sz=self.deepfeat_sz, remove_last_layer=self.remove_last_layer, output_classes=self.output_classes)
         
     def forward(self, x):
-        x = self.model(x)
+        x = self.model(x, None)
         return x
 
     def training_step(self, batch, batch_idx):
@@ -85,6 +89,9 @@ class EDModule(pl.LightningModule):
         self.training_x_ids.append(patient_id)
         logits = self(x)
         loss = self.loss(logits, y.unsqueeze(1).float())
+#         print(f"logits shape = {logits.shape}")
+#         print(f"yshape = {y.shape}")
+#         loss = self.loss(logits, y.float())
         preds = torch.sigmoid(logits)
 
         self.training_preds.extend(preds.cpu().detach().numpy().tolist())
@@ -95,9 +102,8 @@ class EDModule(pl.LightningModule):
 
     def training_epoch_end(self, outputs):
         auroc = roc_auc_score(np.array(self.training_y), np.array(self.training_preds))
-        if self.verbose >= 2:
-            print(
-                f"[TRAIN]: epoch={self.epoch}, loss={np.mean(self.training_losses)}, num_samples={len(self.training_y)}, auroc={auroc}")
+#         if self.verbose >= 2:
+        print(f"[TRAIN]: epoch={self.epoch}, loss={np.mean(self.training_losses)}, num_samples={len(self.training_y)}, auroc={auroc}")
 
         self.training_preds = []
         self.training_y = []
@@ -141,17 +147,16 @@ class EDModule(pl.LightningModule):
             
         auroc = roc_auc_score(np.array(self.validation_y), np.array(self.validation_preds))
         self.validation_aurocs.append(auroc)
-        if self.verbose >= 2:
-            print(
-                f"[VALIDATION]: epoch = {self.epoch}, loss={np.mean(self.validation_losses)}, num_samples={len(self.validation_y)}, auroc={auroc}")
+#         if self.verbose >= 2:
+        print(f"[VALIDATION]: epoch = {self.epoch}, loss={np.mean(self.validation_losses)}, num_samples={len(self.validation_y)}, auroc={auroc}")
         if self.logger is not None:
             self.logger.experiment.add_scalars("aurocs", {"val_auroc": auroc}, global_step=self.current_epoch)
 
         # Uncomment if we want to have early stopping operate on loss per epoch 
         self.log('val_loss', np.mean(self.validation_losses), prog_bar=True)
 
-        if self.verbose >= 2:
-            print("-" * 40)
+#         if self.verbose >= 2:
+        print("-" * 40)
         self.epoch += 1
         
         self.validation_preds = []
@@ -215,7 +220,7 @@ class EDModule(pl.LightningModule):
         pass
 
     def train_dataloader(self):
-        train_dats = MLPDataLoader(self.df_train)
+        train_dats = TransformerDataLoader(self.df_train)
 
         if self.balanced_training:
             trainratio = np.bincount(train_dats.get_labels())
@@ -233,19 +238,19 @@ class EDModule(pl.LightningModule):
     def val_dataloader(self):
         if self.verbose >= 2:
             print("val_dataloader")
-        val_dats = MLPDataLoader(self.df_val)
+        val_dats = TransformerDataLoader(self.df_val)
         val_loader = DataLoader(val_dats, batch_size=self.batch_size, shuffle=False, num_workers=4)
         return val_loader
 
     def test_dataloader(self):
         if self.verbose >= 2:
             print("test_dataloader")
-        test_dats = MLPDataLoader(self.df_test)
+        test_dats = TransformerDataLoader(self.df_test)
         test_loader = DataLoader(test_dats, batch_size=self.batch_size, shuffle=False, num_workers=4)
         return test_loader
 
 
-def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64, embed_dim=322,
+def train_transformer(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64, embed_dim=322,
               dropout_rate=0.2, learning_rate=0.001, start_from=0,
               num_inner_layers=2, batch_size=64, reg=None, epochs=200,
               verbose=0, save_model=False, save_predictions_path=None, run_bootstrap_ci=True, show_df_preview=False):
@@ -261,7 +266,7 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
     test_aurocs = []
     test_y, test_y_preds = [], []
 
-    model = EDModule(df_train, df_val, df_test, embed_dim=embed_dim,
+    model = TransformerModule(df_train, df_val, df_test, embed_dim=embed_dim,
                          batch_size=batch_size, inner_dim=inner_dim, dropout=dropout, learning_rate=learning_rate,
                          dropout_rate=dropout_rate, num_inner_layers=num_inner_layers, reg=reg,
                          verbose=verbose)
@@ -269,10 +274,11 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
     checkpoint_callback = ModelCheckpoint(monitor="val_loss")
     callbacks = []
     if patience is not None:
+        print(f"Early stopping is enabled")
         early_stopping = EarlyStopping(
             'val_loss',
             patience=patience,
-            verbose=0
+            verbose=verbose >= 1
         )
         callbacks.append(early_stopping)
     if save_model:
@@ -298,7 +304,7 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
         print()
         print("============= TRAIN ROC CURVE ===============")
     model.reset_final_preds_and_y()
-    trainer.test(test_dataloaders=model.train_dataloader(), verbose=(verbose >= 2), ckpt_path='best')
+    trainer.test(test_dataloaders=model.train_dataloader(), verbose=(verbose >= 2))
     final_preds, final_y = model.get_final_preds_and_y()
     precision, recall, _ = precision_recall_curve(final_y, final_preds)
     auprc_alt = auc(recall, precision)
@@ -320,10 +326,10 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
         
     train_aurocs.append(auroc_train)
     
-    if verbose >= 1:
-        print(f"TRAIN AUROC = {auroc_train} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} ACS")
-        if checkpoint_callback is not None:
-            print(f"Best Checkpoint = {checkpoint_callback.best_model_path}")
+#     if verbose >= 1:
+    print(f"TRAIN AUROC = {auroc_train} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} ACS")
+    if checkpoint_callback is not None:
+        print(f"Best Checkpoint = {checkpoint_callback.best_model_path}")
 
     if verbose >= 1:
         print()
@@ -331,7 +337,7 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
         print("============= VAL ROC CURVE ===============")
     
     model.reset_final_preds_and_y()
-    trainer.test(test_dataloaders=model.val_dataloader(), verbose=(verbose >= 2), ckpt_path='best')
+    trainer.test(test_dataloaders=model.val_dataloader(), verbose=(verbose >= 2))
     final_preds, final_y = model.get_final_preds_and_y()
 
     precision, recall, _ = precision_recall_curve(final_y, final_preds)
@@ -361,7 +367,7 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
         print("============= TEST ROC CURVE ===============")
     model.reset_final_preds_and_y()
 
-    trainer.test(test_dataloaders=model.test_dataloader(), verbose=(verbose >= 2), ckpt_path='best')
+    trainer.test(test_dataloaders=model.test_dataloader(), verbose=(verbose >= 2))
     final_preds, final_y = model.get_final_preds_and_y()
     if verbose >= 1:
         auroc_test = calculate_output_statistics(final_y, final_preds)
@@ -399,16 +405,22 @@ def train_mlp(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64
         plt.ylabel('Loss')
         plt.show()
 
+    print()
+    print(f"Training Losses: {training_losses}")
+    print(f"Validation Losses: {validation_losses}")
+    print(f"auroc_train={auroc_train}")
+    print(f"auroc_val={auroc_val}")
+    print(f"auroc_test={auroc_test}")
+
     return auroc_train, auroc_val, auroc_test
 
 
-def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
-             dropout_rate=0.2, num_inner_layers=2, batch_size=64,
-             save_predictions_path=None, verbose=0):
+def test_transformer(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
+             dropout_rate=0.2, num_inner_layers=2, batch_size=64, deepfeat_sz=64, remove_last_layer=False,
+             save_predictions_path=None, output_classes=[1], verbose=0):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    model = MLP(embed_dim, dropout=dropout, inner_dim=inner_dim,
-                         dropout_rate=dropout_rate, num_inner_layers=num_inner_layers).to(device)
+    model = load_best_model(None, deepfeat_sz=deepfeat_sz, remove_last_layer=remove_last_layer, output_classes=output_classes)
 
     if torch.cuda.is_available():
         checkpoint = torch.load(model_path)
@@ -421,8 +433,8 @@ def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
         state_dict[k.replace("model.", "")] = state_dict.pop(k)
     model.load_state_dict(state_dict)
     model.eval()
-    
-    test_dats = MLPDataLoader(df)
+
+    test_dats = TransformerDataLoader(df)
     test_loader = DataLoader(test_dats, batch_size=batch_size, shuffle=False, num_workers=4)
     
     final_patient_ids = []
@@ -432,7 +444,7 @@ def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
     for batch in tqdm(test_loader):
         x, y, patient_id = batch
         x = x.to(device=device, dtype=torch.float)
-        output = model(x)
+        output = model(x, None)
         preds = torch.sigmoid(output)
         preds = torch.squeeze(preds)
         preds = preds.cpu()
@@ -459,8 +471,7 @@ def test_mlp(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
         calculate_confidence_intervals(final_y, final_preds, ci_type="bootstrap")
     precision, recall, _ = precision_recall_curve(final_y, final_preds)
     auprc_alt = auc(recall, precision)
-    if verbose >= 1:
-        print(f"TEST AUROC = {auroc_test} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} pos")
+    print(f"TEST AUROC = {auroc_test} AUPRC = {auprc_alt} using data size {len(final_preds)} with {sum(final_y)} pos")
 
     if save_predictions_path is not None:
         Path(f"{save_predictions_path}").mkdir(parents=True, exist_ok=True)

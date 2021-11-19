@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.preprocessing import StandardScaler, OrdinalEncoder
@@ -51,7 +52,7 @@ def get_embedding_df(df, summary_df, waveforms, outcome_col="outcome", additiona
     
     output = []
     
-    for i, row in df.iterrows():
+    for i, row in tqdm(df.iterrows()):
         patient_id = int(row["patient_id"])
         outcome = row[outcome_col]
         if patient_id in patient_id_to_index:

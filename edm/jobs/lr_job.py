@@ -5,10 +5,12 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from edm.utils.measures import perf_measure, calculate_output_statistics, calculate_confidence_intervals
 from edm.utils.embeddings import get_embedding_df
+from pathlib import Path
+import csv
 
 class LogisticRegressionJob():
     
-    def __init__(self, df_train_path, df_val_path, df_test_path, summary_path, embeddings_path):
+    def __init__(self, df_train_path, df_val_path, df_test_path, summary_path, embeddings_path, save_predictions_path=None):
         """
         :param df_train_path: Example - /deep/group/ed-monitor/patient_data_v9/consolidated.filtered.train.txt
         :param df_val_path: Example - /deep/group/ed-monitor/patient_data_v9/consolidated.filtered.val.txt
@@ -21,8 +23,9 @@ class LogisticRegressionJob():
         self.df_test_path = df_test_path
         self.summary_path = summary_path
         self.embeddings_path = embeddings_path
+        self.save_predictions_path = save_predictions_path
 
-    def run(self, max_iter=1000, class_weight="balanced", run_bootstrap_ci=True):
+    def run(self, max_iter=1000, class_weight="balanced", run_bootstrap_ci=True, random_state=42):
 
         df_train = pd.read_csv(self.df_train_path, sep="\t", na_values='?')
         df_val = pd.read_csv(self.df_val_path, sep="\t", na_values='?')
@@ -50,10 +53,11 @@ class LogisticRegressionJob():
         df_val_x = df_val_x.drop(["patient_id", "outcome"], axis=1)
 
         df_test_y = df_test_x["outcome"]
+        df_test_x_ids = df_test_x["patient_id"].tolist()
         df_test_x = df_test_x.drop(["patient_id", "outcome"], axis=1)
 
         print(f"Starting model training...")
-        clf = LogisticRegression(random_state=42, class_weight=class_weight, max_iter=max_iter)
+        clf = LogisticRegression(random_state=random_state, class_weight=class_weight, max_iter=max_iter)
         clf.fit(df_train_x, df_train_y)
 
         print()
@@ -78,5 +82,14 @@ class LogisticRegressionJob():
         calculate_confidence_intervals(df_test_y.tolist(), y_test_pred, ci_type="delong")
         if run_bootstrap_ci:
             calculate_confidence_intervals(df_test_y.tolist(), y_test_pred, ci_type="bootstrap")
-        
+
+        if self.save_predictions_path is not None:
+            Path(f"{self.save_predictions_path}").mkdir(parents=True, exist_ok=True)
+            with open(f"{self.save_predictions_path}/test.csv", "w") as fp:
+                writer = csv.writer(fp, delimiter=",")
+                writer.writerow(["patient_id", "preds", "actual"])
+                final_y = df_test_y.tolist()
+                for ind in range(len(df_test_x_ids)):
+                    writer.writerow([df_test_x_ids[ind], y_test_pred[ind], final_y[ind]])
+
         return auroc_train, auroc_val, auroc_test
