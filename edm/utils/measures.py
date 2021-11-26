@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
-from sklearn.metrics import roc_curve, auc, precision_recall_curve
+from sklearn.metrics import roc_curve, auc, precision_recall_curve, roc_auc_score
 from edm.utils.delong import delong_roc_variance
 from tqdm import tqdm
 
@@ -116,3 +116,19 @@ def calculate_confidence_intervals(y_actual, y_pred, ci_type="bootstrap", alpha=
 
         print(f"[DeLong] AUC={round(auroc, 3)}, AUC COV={round(auc_cov, 3)}, 95% CI={ci}; AUPRC={round(auprc, 3)}, 95% CI=N/A")
         return ci, None
+
+def permutation_test_between_clfs(y_test, pred_proba_1, pred_proba_2, nsamples=1000):
+    auc_differences = []
+    orig_auc1 = roc_auc_score(y_test, pred_proba_1)
+    orig_auc2 = roc_auc_score(y_test, pred_proba_2)
+    observed_difference = orig_auc1 - orig_auc2
+    for _ in tqdm(range(nsamples)):
+        mask = np.random.randint(2, size=len(pred_proba_1))
+        p1 = np.where(mask, pred_proba_1, pred_proba_2)
+        p2 = np.where(mask, pred_proba_2, pred_proba_1)
+        auc1 = roc_auc_score(y_test, p1)
+        auc2 = roc_auc_score(y_test, p2)
+        auc_differences.append(auc1 - auc2)
+    p_diff = np.mean(auc_differences >= observed_difference)
+    print(f"AUC1 = {orig_auc1}; AUC2 = {orig_auc2}; p_diff = {p_diff}")
+    return observed_difference, p_diff

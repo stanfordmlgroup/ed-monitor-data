@@ -174,11 +174,11 @@ def calc_pvalue(aucs, sigma):
        aucs: 1D array of AUCs
        sigma: AUC DeLong covariances
     Returns:
-       log10(pvalue)
+       pvalue
     """
     l = np.array([[1, -1]])
     z = np.abs(np.diff(aucs)) / np.sqrt(np.dot(np.dot(l, sigma), l.T))
-    return np.log10(2) + scipy.stats.norm.logsf(z, loc=0, scale=1) / np.log(10)
+    return pow(10, np.log10(2) + scipy.stats.norm.logsf(z, loc=0, scale=1) / np.log(10))
 
 
 def compute_ground_truth_statistics(ground_truth, sample_weight):
@@ -206,3 +206,18 @@ def delong_roc_variance(ground_truth, predictions, sample_weight=None):
     aucs, delongcov = fastDeLong(predictions_sorted_transposed, label_1_count, ordered_sample_weight)
     assert len(aucs) == 1, "There is a bug in the code, please forward this to the developers"
     return aucs[0], delongcov
+
+def delong_roc_test(ground_truth, predictions_one, predictions_two):
+    """
+    Computes log(p-value) for hypothesis that two ROC AUCs are different
+    Args:
+       ground_truth: np.array of 0 and 1
+       predictions_one: predictions of the first model,
+          np.array of floats of the probability of being class 1
+       predictions_two: predictions of the second model,
+          np.array of floats of the probability of being class 1
+    """
+    order, label_1_count, _ = compute_ground_truth_statistics(ground_truth, None)
+    predictions_sorted_transposed = np.vstack((predictions_one, predictions_two))[:, order]
+    aucs, delongcov = fastDeLong(predictions_sorted_transposed, label_1_count, None)
+    return calc_pvalue(aucs, delongcov)
