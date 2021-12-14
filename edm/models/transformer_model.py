@@ -149,6 +149,11 @@ def load_best_model(model_loc, deepfeat_sz, remove_last_layer=True, leads=1, out
     else:
         print("NOT using a pre-trained model")
 
+        # Initialize parameters with Glorot / fan_avg.
+        for p in model.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
     if remove_last_layer:
         model = torch.nn.Sequential(*(list(list(model.children())[0].children())[:-2]))
     return model

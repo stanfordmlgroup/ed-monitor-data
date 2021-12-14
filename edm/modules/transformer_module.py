@@ -33,7 +33,39 @@ from edm.utils.measures import perf_measure, calculate_output_statistics, calcul
 
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    
+
+class NoamOpt(torch.optim.Optimizer):
+    "Optim wrapper that implements rate."
+    def __init__(self, model_size, factor, warmup, optimizer):
+        self.optimizer = optimizer
+        self._step = 0
+        self.warmup = warmup
+        self.factor = factor
+        self.model_size = model_size
+        self._rate = 0
+        self.state = optimizer.state
+        self.param_groups = optimizer.param_groups
+        
+    def __setstate__(self, state):
+        self.optimizer.__setstate__(state)
+
+    def step(self, closure=None):
+        "Update parameters and rate"
+        self._step += 1
+        rate = self.rate()
+        for p in self.optimizer.param_groups:
+            p['lr'] = rate
+        self._rate = rate
+        self.optimizer.step(closure)
+        
+    def rate(self, step = None):
+        "Implement `lrate` above"
+        if step is None:
+            step = self._step
+        return self.factor * \
+            (self.model_size ** (-0.5) *
+            min(step ** (-0.5), step * self.warmup ** (-1.5)))
+
 class TransformerModule(pl.LightningModule):
 
     def __init__(self, df_train, df_val, df_test, embed_dim=322, deepfeat_sz=64,
@@ -189,9 +221,11 @@ class TransformerModule(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.reg is not None:
-            optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.reg)
+            # optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=self.reg)
+            optimizer = NoamOpt(256, 1, 4000, torch.optim.Adam(self.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
         else:
-            optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+            # optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+            optimizer = NoamOpt(256, 1, 4000, torch.optim.Adam(self.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
         return optimizer
 
     ####################
