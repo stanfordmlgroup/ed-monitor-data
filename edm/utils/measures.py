@@ -53,6 +53,7 @@ def calculate_output_statistics(y_actual, y_pred, show_plots=True):
 def get_bootstrap_metrics(orig_preds, orig_actual, bootstrap_samples=10000):
     bootstrap_aucs = []
     bootstrap_auprcs = []
+    np.random.seed(bootstrap_samples)
     for j in tqdm(range(bootstrap_samples)):
         bootstrap_indices = np.random.choice(range(len(orig_preds)), size=len(orig_preds), replace=True)
         preds = [orig_preds[i] for i in bootstrap_indices]
