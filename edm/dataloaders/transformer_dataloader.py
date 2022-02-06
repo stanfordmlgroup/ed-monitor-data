@@ -3,8 +3,9 @@ import numpy as np
 
 
 class TransformerDataLoader(Dataset):
-    def __init__(self, waveform_df):
+    def __init__(self, waveform_df, num_numerics_cols):
         self.waveform_df = waveform_df
+        self.num_numerics_cols = num_numerics_cols
 
     def __len__(self):
         return len(self.waveform_df)
@@ -19,9 +20,13 @@ class TransformerDataLoader(Dataset):
         cols_to_drop = ["patient_id", "outcome"]
         dims = self.waveform_df.iloc[[idx]].drop(cols_to_drop, axis=1)
         dims = dims.to_numpy()
-#         output = np.zeros(2)
-#         output[int(cls)] = 1
-#         return dims, output, patient_id
-        return dims, int(cls), patient_id
+        
+        # Take the first columns to be the numerics columns
+        if self.num_numerics_cols > 0:
+            numerics_cols = dims[:, :self.num_numerics_cols]
+            dims = dims[:, self.num_numerics_cols:]
+            return numerics_cols, dims, int(cls), patient_id
+        else:
+            return np.array([]), dims, int(cls), patient_id
 
     

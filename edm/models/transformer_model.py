@@ -17,8 +17,6 @@ d_ff = 2048     # feed forward layer size
 num_layers = 8  # number of encoding layers
 dropout_rate = 0.2
 model_name = 'ctn'
-nb_demo = 2
-nb_feats = 20
 classes = sorted(['270492004', '164889003', '164890007', '426627000', '713427006',
                   '713426002', '445118002', '39732003', '164909002', '251146004',
                   '698252002', '10370003', '284470004', '427172004', '164947007',
@@ -83,7 +81,7 @@ class Transformer(nn.Module):
 
 # 15 second model
 class CTN(nn.Module):
-    def __init__(self, d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_feats, nb_demo, classes, leads=1):
+    def __init__(self, d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_patient_feats, classes, leads=1):
         super(CTN, self).__init__()
 
         self.encoder = nn.Sequential(  # downsampling factor = 20
@@ -108,9 +106,12 @@ class CTN(nn.Module):
         )
         self.transformer = Transformer(d_model, nhead, d_ff, num_layers, dropout=0.1)
         self.fc1 = nn.Linear(d_model, deepfeat_sz)
-        # self.fc2 = nn.Linear(deepfeat_sz+nb_feats+nb_demo, len(classes))
-        self.fc2 = nn.Linear(deepfeat_sz, len(classes))
+        #self.fc2 = nn.Linear(deepfeat_sz + nb_patient_feats, deepfeat_sz)
+        #self.fc3 = nn.Linear(deepfeat_sz, deepfeat_sz)
+        #self.fc4 = nn.Linear(deepfeat_sz, len(classes))
+        self.fc2 = nn.Linear(deepfeat_sz + nb_patient_feats, len(classes))
         self.dropout = nn.Dropout(dropout_rate)
+        self.nb_patient_feats = nb_patient_feats
 
         def _weights_init(m):
             if isinstance(m, nn.Linear):
@@ -126,14 +127,28 @@ class CTN(nn.Module):
     def forward(self, x, wide_feats):
         z = self.encoder(x)  # encoded sequence is batch_sz x nb_ch x seq_len
         out = self.transformer(z)  # transformer output is batch_sz x d_model
-        out = self.dropout(F.relu(self.fc1(out)))
-        # out = self.fc2(torch.cat([wide_feats, out], dim=1))
-        out = self.fc2(out)
+        out = F.relu(self.fc1(out))
+        
+        if self.nb_patient_feats > 0:
+            wide_feats = torch.squeeze(wide_feats).float()
+            out = self.fc2(torch.cat([wide_feats, out], dim=1))
+        else:
+            out = self.fc2(out)
+
+#         out = self.dropout(F.relu(self.fc3(out)))
+#         out = self.dropout(F.relu(self.fc4(out)))
+
+#         out = self.dropout(F.relu(self.fc1(out)))
+#         if self.nb_patient_feats > 0:
+#             wide_feats = torch.squeeze(wide_feats).float()
+#             out = self.fc2(torch.cat([wide_feats, out], dim=1))
+#         else:
+#             out = self.fc2(out)
         return out
 
 
-def load_best_model(model_loc, deepfeat_sz, remove_last_layer=True, leads=1, output_classes=classes):
-    model = CTN(d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_feats, nb_demo, output_classes, leads).to(device)
+def load_best_model(model_loc, deepfeat_sz, remove_last_layer=True, leads=1, output_classes=classes, nb_patient_feats=0):
+    model = CTN(d_model, nhead, d_ff, num_layers, dropout_rate, deepfeat_sz, nb_patient_feats, output_classes, leads).to(device)
     model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
 
     if model_loc is not None:

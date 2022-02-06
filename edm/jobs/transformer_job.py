@@ -78,10 +78,13 @@ class TransformerJob():
 
         if self.verbose >= 1:
             print(f"Starting model training...")
-        return train_transformer(df_train_x, df_val_x, df_test_x, batch_size=batch_size, embed_dim=df_train_x.shape[1] - 2,
-                         patience=patience, inner_dim=inner_dim, learning_rate=learning_rate, dropout_rate=dropout_rate,
-                         num_inner_layers=num_inner_layers, epochs=epochs, save_predictions_path=self.save_predictions_path, 
-                         save_model=self.save_model, run_bootstrap_ci=self.run_bootstrap_ci, verbose=self.verbose)
+        
+        nb_patient_feats = len(self.additional_cols) + len(self.ordinal_cols)
+        return train_transformer(df_train_x, df_val_x, df_test_x, batch_size=batch_size, embed_dim=df_train_x.shape[1] - 2, 
+                                 nb_patient_feats=nb_patient_feats, patience=patience, inner_dim=inner_dim, 
+                                 learning_rate=learning_rate, dropout_rate=dropout_rate, num_inner_layers=num_inner_layers, 
+                                 epochs=epochs, save_predictions_path=self.save_predictions_path, 
+                                 save_model=self.save_model, run_bootstrap_ci=self.run_bootstrap_ci, verbose=self.verbose)
 
     def test(self, model_path, batch_size=128, dropout_rate=0, num_inner_layers=2, inner_dim=128):
         # Note that the original train/val files still need to be provided during testing to ensure we properly
@@ -89,7 +92,8 @@ class TransformerJob():
         _, _, df_test_x = self.__preprocess()
 
         print(f"Starting model testing...")
+        nb_patient_feats = len(self.additional_cols) + len(self.ordinal_cols)
         return test_transformer(df_test_x, model_path, batch_size=batch_size, embed_dim=df_test_x.shape[1] - 2,
-                        inner_dim=inner_dim, dropout_rate=dropout_rate,
+                        inner_dim=inner_dim, dropout_rate=dropout_rate, nb_patient_feats=nb_patient_feats,
                         num_inner_layers=num_inner_layers, save_predictions_path=self.save_predictions_path,
                         verbose=self.verbose)

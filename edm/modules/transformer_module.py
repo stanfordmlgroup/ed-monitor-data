@@ -71,7 +71,7 @@ class TransformerModule(pl.LightningModule):
     def __init__(self, df_train, df_val, df_test, embed_dim=322, deepfeat_sz=64,
                  batch_size=64, fold_num=0, learning_rate=0.001, reg=None,
                  num_inner_layers=2, dropout_rate=0.2, remove_last_layer=False,
-                 dropout=True, inner_dim=64, balanced_training=False,
+                 dropout=True, inner_dim=64, balanced_training=False, nb_patient_feats=0,
                  verbose=0):
 
         super().__init__()
@@ -106,24 +106,22 @@ class TransformerModule(pl.LightningModule):
         self.deepfeat_sz = deepfeat_sz
         self.remove_last_layer = remove_last_layer
         self.balanced_training = balanced_training
+        self.nb_patient_feats = nb_patient_feats
         self.verbose = verbose
         self.reset_final_preds_and_y()
 
-        self.model = load_best_model(None, deepfeat_sz=self.deepfeat_sz, remove_last_layer=self.remove_last_layer, output_classes=self.output_classes)
+        self.model = load_best_model(None, deepfeat_sz=self.deepfeat_sz, remove_last_layer=self.remove_last_layer, output_classes=self.output_classes, nb_patient_feats=nb_patient_feats)
         
-    def forward(self, x):
-        x = self.model(x, None)
+    def forward(self, x, patient_feats):
+        x = self.model(x, patient_feats)
         return x
 
     def training_step(self, batch, batch_idx):
-        x, y, patient_id = batch
+        patient_feats, x, y, patient_id = batch
         x = x.to(device=device, dtype=torch.float)
         self.training_x_ids.append(patient_id)
-        logits = self(x)
+        logits = self(x, patient_feats)
         loss = self.loss(logits, y.unsqueeze(1).float())
-#         print(f"logits shape = {logits.shape}")
-#         print(f"yshape = {y.shape}")
-#         loss = self.loss(logits, y.float())
         preds = torch.sigmoid(logits)
 
         self.training_preds.extend(preds.cpu().detach().numpy().tolist())
@@ -147,9 +145,11 @@ class TransformerModule(pl.LightningModule):
         self.training_x_ids = []
 
     def validation_step(self, batch, batch_idx):
-        x, y, patient_id = batch
+        patient_feats, x, y, patient_id = batch
+#         print(f"patient_feats shape = {patient_feats.shape}")
+#         print(f"x shape = {x.shape}")
         x = x.to(device=device, dtype=torch.float)
-        logits = self(x)
+        logits = self(x, patient_feats)
         loss = self.loss(logits, y.unsqueeze(1).float())
         preds = torch.sigmoid(logits)
         preds = torch.squeeze(preds)
@@ -197,9 +197,9 @@ class TransformerModule(pl.LightningModule):
         self.patient_ids = []
 
     def test_step(self, batch, batch_idx):
-        x, y, patient_id = batch
+        patient_feats, x, y, patient_id = batch
         x = x.to(device=device, dtype=torch.float)
-        logits = self(x)
+        logits = self(x, patient_feats)
         loss = self.loss(logits, y.unsqueeze(1).float())
         preds = torch.sigmoid(logits)
         preds = torch.squeeze(preds)
@@ -254,7 +254,7 @@ class TransformerModule(pl.LightningModule):
         pass
 
     def train_dataloader(self):
-        train_dats = TransformerDataLoader(self.df_train)
+        train_dats = TransformerDataLoader(self.df_train, self.nb_patient_feats)
 
         if self.balanced_training:
             trainratio = np.bincount(train_dats.get_labels())
@@ -272,20 +272,20 @@ class TransformerModule(pl.LightningModule):
     def val_dataloader(self):
         if self.verbose >= 2:
             print("val_dataloader")
-        val_dats = TransformerDataLoader(self.df_val)
+        val_dats = TransformerDataLoader(self.df_val, self.nb_patient_feats)
         val_loader = DataLoader(val_dats, batch_size=self.batch_size, shuffle=False, num_workers=4)
         return val_loader
 
     def test_dataloader(self):
         if self.verbose >= 2:
             print("test_dataloader")
-        test_dats = TransformerDataLoader(self.df_test)
+        test_dats = TransformerDataLoader(self.df_test, self.nb_patient_feats)
         test_loader = DataLoader(test_dats, batch_size=self.batch_size, shuffle=False, num_workers=4)
         return test_loader
 
 
 def train_transformer(df_train, df_val, df_test, patience=10, dropout=True, inner_dim=64, embed_dim=322,
-              dropout_rate=0.2, learning_rate=0.001, start_from=0,
+              dropout_rate=0.2, learning_rate=0.001, start_from=0, nb_patient_feats=0,
               num_inner_layers=2, batch_size=64, reg=None, epochs=200,
               verbose=0, save_model=False, save_predictions_path=None, run_bootstrap_ci=True, show_df_preview=False):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -300,7 +300,7 @@ def train_transformer(df_train, df_val, df_test, patience=10, dropout=True, inne
     test_aurocs = []
     test_y, test_y_preds = [], []
 
-    model = TransformerModule(df_train, df_val, df_test, embed_dim=embed_dim,
+    model = TransformerModule(df_train, df_val, df_test, embed_dim=embed_dim, nb_patient_feats=nb_patient_feats,
                          batch_size=batch_size, inner_dim=inner_dim, dropout=dropout, learning_rate=learning_rate,
                          dropout_rate=dropout_rate, num_inner_layers=num_inner_layers, reg=reg,
                          verbose=verbose)
@@ -449,12 +449,13 @@ def train_transformer(df_train, df_val, df_test, patience=10, dropout=True, inne
     return auroc_train, auroc_val, auroc_test
 
 
-def test_transformer(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
-             dropout_rate=0.2, num_inner_layers=2, batch_size=64, deepfeat_sz=64, remove_last_layer=False,
+def test_transformer(df, model_path, dropout=True, inner_dim=64, embed_dim=322, nb_patient_feats=0,
+             dropout_rate=0.2, num_inner_layers=2, batch_size=64, deepfeat_sz=128, remove_last_layer=False,
              save_predictions_path=None, output_classes=[1], verbose=0):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    model = load_best_model(None, deepfeat_sz=deepfeat_sz, remove_last_layer=remove_last_layer, output_classes=output_classes)
+    model = load_best_model(None, deepfeat_sz=deepfeat_sz, remove_last_layer=remove_last_layer, 
+                            output_classes=output_classes, nb_patient_feats=nb_patient_feats)
 
     if torch.cuda.is_available():
         checkpoint = torch.load(model_path)
@@ -468,7 +469,7 @@ def test_transformer(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
     model.load_state_dict(state_dict)
     model.eval()
 
-    test_dats = TransformerDataLoader(df)
+    test_dats = TransformerDataLoader(df, self.nb_patient_feats)
     test_loader = DataLoader(test_dats, batch_size=batch_size, shuffle=False, num_workers=4)
     
     final_patient_ids = []
@@ -476,9 +477,9 @@ def test_transformer(df, model_path, dropout=True, inner_dim=64, embed_dim=322,
     final_y = []
     
     for batch in tqdm(test_loader):
-        x, y, patient_id = batch
+        patient_feats, x, y, patient_id = batch
         x = x.to(device=device, dtype=torch.float)
-        output = model(x, None)
+        output = model(x, patient_feats)
         preds = torch.sigmoid(output)
         preds = torch.squeeze(preds)
         preds = preds.cpu()
