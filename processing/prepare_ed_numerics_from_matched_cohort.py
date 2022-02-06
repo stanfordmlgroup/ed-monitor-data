@@ -20,6 +20,7 @@ import re
 import csv
 import matplotlib.pyplot as plt
 import math
+import shutil
 import pickle
 from biosppy.signals.tools import filter_signal
 from concurrent import futures
@@ -118,7 +119,7 @@ def process_numerics_file(curr_index, total_rows, patient_id, patient_dirs, stud
 
 
 def process_record(input_args):
-    i, total_rows, waveform_df, patient_dirs, study_to_patient_dir, output_folder = input_args
+    i, total_rows, waveform_df, patient_dirs, study_to_patient_dir, output_folder, existing_output_folder = input_args
 
     # Ensure consistent range selected for each patient file
     np.random.seed(i)
@@ -129,14 +130,29 @@ def process_record(input_args):
         
         # Keep folders sane by outputting objects into subfolders based on last two digits of CSN
         folder_hash = str(patient_id)[-2:]
+
+        # Does the file already exist? If so, we can just copy it
+        #
+
+        # Check current folder
         output_hash_folder = f"{output_folder}/{folder_hash}"
         Path(output_hash_folder).mkdir(parents=True, exist_ok=True)
-        
-        if os.path.isfile(f"{output_hash_folder}/{patient_id}.pkl"):
+        output_file = f"{output_hash_folder}/{patient_id}.pkl"
+        if os.path.isfile(output_file):
             # If folder already exists, just skip
             print(f"[{i}/{total_rows}] [{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Numerics file already exists")
             return None, None
-    
+
+        # Check existing folder
+        if existing_output_folder is not None:
+            existing_output_hash_folder = f"{existing_output_folder}/{folder_hash}"
+            existing_file = f"{existing_output_hash_folder}/{patient_id}.pkl"
+            if os.path.isfile(existing_file):
+                # If file already exists, just copy it over
+                shutil.copyfile(existing_file, output_file)
+                print(f"[{i}/{total_rows}] [{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Copied numerics file from {existing_file} to {output_file}")
+                return None, None
+
         roomed_time = waveform_df.iloc[[i]]["Roomed_time"].item()
         dispo_time = waveform_df.iloc[[i]]["Dispo_time"].item()
         studies = waveform_df.iloc[[i]]["final_studies"].item().split(",")
@@ -167,6 +183,7 @@ def run(args):
     consolidated_file = args.consolidated_file
     patient_dirs = args.patient_dirs.split(",")
     output_folder = args.output_folder
+    existing_output_folder = args.existing_output_folder
     max_patients = int(args.max_patients) if args.max_patients is not None else None
 
     Path(output_folder).mkdir(parents=True, exist_ok=True)
@@ -188,19 +205,11 @@ def run(args):
     fs = []
     with futures.ProcessPoolExecutor(64) as executor:
         for i, row in tqdm(df.iterrows(), disable=True):
-            input_args = [i, total_rows, df, patient_dirs, study_to_patient_dir, output_folder]
+            input_args = [i, total_rows, df, patient_dirs, study_to_patient_dir, output_folder, existing_output_folder]
             future = executor.submit(process_record, input_args)
             fs.append(future)
             if max_patients is not None and i >= (max_patients - 1):
                 break
-
-#     output_obj = {
-#         "patient_ids": [],
-#         "time": []
-#     }
-#     for col in COLUMNS:
-#         # Will be uneven in length
-#         output_obj[col] = []
     
     patients_with_data = 0
     for future in futures.as_completed(fs):
@@ -209,14 +218,6 @@ def run(args):
         result, pt = future.result(timeout=60*60)
         if result is not None:
             patients_with_data += 1
-#             for w in result.keys():
-#                 output_obj[w].append(result[w])
-#             output_obj["patient_ids"].append(pt)
-
-#     with open(f"{output_folder}/numerics.pkl", 'wb') as handle:
-#         pickle.dump(output_obj, handle, protocol=pickle.HIGHEST_PROTOCOL)      
-        
-#     print(f"Output is written to: {output_folder}/numerics.pkl")
 
     print(f"Found patients_with_data={patients_with_data}")
     print(f"END TIME: {datetime.datetime.now()}")
@@ -232,6 +233,9 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--patient-dirs',
                         required=True,
                         help='The path to the patient dirs')
+    parser.add_argument('-e', '--existing-output-folder',
+                        default=None,
+                        help='Folder where the output files might already exist (speeds up processing if processing new version)')
     parser.add_argument('-o', '--output-folder',
                         required=True,
                         help='Folder where the output files will be written')
