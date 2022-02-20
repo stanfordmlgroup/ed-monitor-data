@@ -19,12 +19,16 @@ class TransformerDataLoader(Dataset):
 
         cols_to_drop = ["patient_id", "outcome"]
         dims = self.waveform_df.iloc[[idx]].drop(cols_to_drop, axis=1)
+        #      patient_id  outcome   embed_0  ...        DM     Obese   Smoking
+        # 0  131307178741        0  0.450635  ... -0.716465 -0.383485 -0.286483
+        
+        
         dims = dims.to_numpy()
         
-        # Take the first columns to be the numerics columns
+        # Take the last columns to be the numerics columns
         if self.num_numerics_cols > 0:
-            numerics_cols = dims[:, :self.num_numerics_cols]
-            dims = dims[:, self.num_numerics_cols:]
+            numerics_cols = dims[:, -self.num_numerics_cols:]
+            dims = dims[:, :-self.num_numerics_cols]
             return numerics_cols, dims, int(cls), patient_id
         else:
             return np.array([]), dims, int(cls), patient_id

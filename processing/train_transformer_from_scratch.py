@@ -21,7 +21,7 @@ def run(args):
             embeddings_path="/deep/group/ed-monitor/patient_data_v9/waveforms/15sec-500hz-1norm-1wpp/II/waveforms.dat.npy",
             # save_predictions_path="/deep/group/ed-monitor/patient_data_v9/waveforms/15sec-500hz-1norm-1wpp/II/transformer-64-scratch",
             run_bootstrap_ci=False,
-            save_model=True
+            save_model=False
         )
     else:
         print("INCLUDING NUMERICS")
@@ -34,7 +34,7 @@ def run(args):
             additional_cols=["Age", "Gender", "SpO2", "RR", "HR", "Temp", "SBP", "DBP", "Athero", "HTN", "HLD", "DM", "Obese", "Smoking"],
             ordinal_cols=["Gender"],
             run_bootstrap_ci=False,
-            save_model=True
+            save_model=False
         )
 
     auroc_train, auroc_val, auroc_test = tj.run(epochs=100, patience=10)

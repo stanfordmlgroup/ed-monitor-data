@@ -1,6 +1,5 @@
 from sklearn.metrics import precision_score, recall_score, accuracy_score, roc_auc_score
 from pytorch_lightning.callbacks import ModelCheckpoint
-import pytorch_lightning.metrics.functional as metrics
 import pytorch_lightning as pl
 from torch.utils.data import WeightedRandomSampler
 import csv  
@@ -254,6 +253,8 @@ class TransformerModule(pl.LightningModule):
         pass
 
     def train_dataloader(self):
+        if self.verbose >= 2:
+            print(f"training dataloader")
         train_dats = TransformerDataLoader(self.df_train, self.nb_patient_feats)
 
         if self.balanced_training:
@@ -273,14 +274,14 @@ class TransformerModule(pl.LightningModule):
         if self.verbose >= 2:
             print("val_dataloader")
         val_dats = TransformerDataLoader(self.df_val, self.nb_patient_feats)
-        val_loader = DataLoader(val_dats, batch_size=self.batch_size, shuffle=False, num_workers=4)
+        val_loader = DataLoader(val_dats, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
         return val_loader
 
     def test_dataloader(self):
         if self.verbose >= 2:
             print("test_dataloader")
         test_dats = TransformerDataLoader(self.df_test, self.nb_patient_feats)
-        test_loader = DataLoader(test_dats, batch_size=self.batch_size, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dats, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
         return test_loader
 
 
@@ -450,7 +451,7 @@ def train_transformer(df_train, df_val, df_test, patience=10, dropout=True, inne
 
 
 def test_transformer(df, model_path, dropout=True, inner_dim=64, embed_dim=322, nb_patient_feats=0,
-             dropout_rate=0.2, num_inner_layers=2, batch_size=64, deepfeat_sz=128, remove_last_layer=False,
+             dropout_rate=0.2, num_inner_layers=2, batch_size=64, deepfeat_sz=64, remove_last_layer=False,
              save_predictions_path=None, output_classes=[1], verbose=0):
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -469,7 +470,7 @@ def test_transformer(df, model_path, dropout=True, inner_dim=64, embed_dim=322, 
     model.load_state_dict(state_dict)
     model.eval()
 
-    test_dats = TransformerDataLoader(df, self.nb_patient_feats)
+    test_dats = TransformerDataLoader(df, nb_patient_feats)
     test_loader = DataLoader(test_dats, batch_size=batch_size, shuffle=False, num_workers=4)
     
     final_patient_ids = []

@@ -106,12 +106,11 @@ class CTN(nn.Module):
         )
         self.transformer = Transformer(d_model, nhead, d_ff, num_layers, dropout=0.1)
         self.fc1 = nn.Linear(d_model, deepfeat_sz)
-        #self.fc2 = nn.Linear(deepfeat_sz + nb_patient_feats, deepfeat_sz)
-        #self.fc3 = nn.Linear(deepfeat_sz, deepfeat_sz)
-        #self.fc4 = nn.Linear(deepfeat_sz, len(classes))
         self.fc2 = nn.Linear(deepfeat_sz + nb_patient_feats, len(classes))
         self.dropout = nn.Dropout(dropout_rate)
         self.nb_patient_feats = nb_patient_feats
+        
+        print(f"deepfeat_sz={deepfeat_sz}, nb_patient_feats={nb_patient_feats}")
 
         def _weights_init(m):
             if isinstance(m, nn.Linear):
@@ -127,23 +126,15 @@ class CTN(nn.Module):
     def forward(self, x, wide_feats):
         z = self.encoder(x)  # encoded sequence is batch_sz x nb_ch x seq_len
         out = self.transformer(z)  # transformer output is batch_sz x d_model
+
+        # out = self.dropout(F.relu(self.fc1(out)))  
         out = F.relu(self.fc1(out))
-        
         if self.nb_patient_feats > 0:
             wide_feats = torch.squeeze(wide_feats).float()
             out = self.fc2(torch.cat([wide_feats, out], dim=1))
         else:
             out = self.fc2(out)
 
-#         out = self.dropout(F.relu(self.fc3(out)))
-#         out = self.dropout(F.relu(self.fc4(out)))
-
-#         out = self.dropout(F.relu(self.fc1(out)))
-#         if self.nb_patient_feats > 0:
-#             wide_feats = torch.squeeze(wide_feats).float()
-#             out = self.fc2(torch.cat([wide_feats, out], dim=1))
-#         else:
-#             out = self.fc2(out)
         return out
 
 

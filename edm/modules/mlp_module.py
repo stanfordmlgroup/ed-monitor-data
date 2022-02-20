@@ -1,6 +1,5 @@
 from sklearn.metrics import precision_score, recall_score, accuracy_score, roc_auc_score
 from pytorch_lightning.callbacks import ModelCheckpoint
-import pytorch_lightning.metrics.functional as metrics
 import pytorch_lightning as pl
 from torch.utils.data import WeightedRandomSampler
 import csv  

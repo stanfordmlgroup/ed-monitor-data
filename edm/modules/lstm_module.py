@@ -1,6 +1,5 @@
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from pytorch_lightning.callbacks import ModelCheckpoint
-import pytorch_lightning.metrics.functional as metrics
 import pytorch_lightning as pl
 from torch.utils.data import WeightedRandomSampler
 import csv  

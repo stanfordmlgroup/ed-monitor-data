@@ -79,7 +79,6 @@ WAVEFORM_SAMPLE_RATES = {
 }
 
 DEBUG = True
-LIMIT = None
 TRIM_WAVEFORMS = False
 
 
@@ -96,15 +95,20 @@ COLUMNS = [
 def load_numerics_file(study_to_study_folder, study):
     output_files = []
     
+    # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > starting to load numerics")
     if study in study_to_study_folder:
         folder_path = study_to_study_folder[study]
 
         if os.path.isdir(folder_path):
             for f in sorted(os.listdir(folder_path)):
                 if f.endswith("numerics.csv"):
+                    # TODO: Code bottleneck
+                    # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > starting load individual file")
                     output_files.append(pd.read_csv(f"{folder_path}/{f}").rename(columns=lambda x: x.strip()).replace(r'^\s*$', np.nan, regex=True))
+                    # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > done load individual file")
     else:
         print(f"Could not determine where study {study} is located")
+    # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > finished loading numerics")
     return output_files
 
 
@@ -115,6 +119,7 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
         output_vals[col] = []
         output_vals[f"{col}-time"] = []
     
+    # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > starting process_numerics_file")
     for study in sorted(studies):
         for df in load_numerics_file(study_to_study_folder, study):
             if df is None:
@@ -122,6 +127,8 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
                 print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Numerics file with study {study} does not exist!")
                 continue
 
+            # TODO: Code bottleneck
+            # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > parsing individual file")
             for i, row in df.iterrows():
                 # Data is only available spuriously, so collect all measures as we can between start/end
 
@@ -139,6 +146,7 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
                         elif isinstance(row[col], float) and not math.isnan(row[col]):
                             output_vals[col].append(row[col])
                             output_vals[f"{col}-time"].append(row_time.timestamp())
+            # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > done parsing individual file")
     
     is_non_empty = False
     non_empty_len = 0
@@ -317,173 +325,116 @@ def process_study(input_args):
     curr_patient_index, total_patients, patient_id, studies, patient_to_actual_times, patient_to_row, study_to_info, study_to_study_folder, output_dir = input_args
     min_start = None
     max_end = None
+    
+    try:
 
-    print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Starting patient processing {curr_patient_index}/{total_patients}...")
+        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Starting patient processing {curr_patient_index}/{total_patients}...")
 
-    if patient_id not in patient_to_actual_times:
-        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Patient {patient_id} skipped because there was no end dispo")
-        return {}
+        if patient_id not in patient_to_actual_times:
+            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Patient {patient_id} skipped because there was no end dispo")
+            return {}
 
-    roomed_time = patient_to_actual_times[patient_id]["roomed_time"]
-    dispo_time = patient_to_actual_times[patient_id]["dispo_time"]
+        roomed_time = patient_to_actual_times[patient_id]["roomed_time"]
+        dispo_time = patient_to_actual_times[patient_id]["dispo_time"]
 
-    # Extract waveforms
-    #
-    waveform_to_metadata = {}
-    for study in studies:
-        info = study_to_info[study]
-        study_path = info["study_folder"]
+        # Extract waveforms
+        #
+        waveform_to_metadata = {}
+        for study in studies:
+            info = study_to_info[study]
+            study_path = info["study_folder"]
 
-        if DEBUG:
-            print(
-                f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Processing patient_id {patient_id} study {study} in dir {study_path} roomed_time = {roomed_time} dispo_time = {dispo_time}")
-
-        if not os.path.isdir(study_path):
-            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Patient {patient_id} skipped because study path not found {study_path}")
-            break
-
-        start_times = {}
-        end_times = {}
-        for f in os.listdir(study_path):
-            prefix = f.split(".")[0]  # e.g. STUDY-028806_2020-09-19_00-00-00
-            actual_type = f.split(".")[-2]  # e.g. II
-            if actual_type == "clock":
-                try:
-                    start_times[prefix] = get_time_from_clock_file(os.path.join(study_path, f), return_type=START)
-                    end_times[prefix] = get_time_from_clock_file(os.path.join(study_path, f), return_type=END)
-
-                    if min_start is None or min_start > start_times[prefix]:
-                        min_start = start_times[prefix]
-                    if max_end is None or max_end < end_times[prefix]:
-                        max_end = end_times[prefix]
-
-                    if DEBUG:
-                        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > clock file {prefix}: {start_times[prefix]} to {end_times[prefix]}")
-                except IndexError:
-                    if DEBUG:
-                        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     >>> Clock file was empty")
-        if len(start_times) == 0:
             if DEBUG:
-                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     >>> No clock file found for study " + study)
-            continue
+                print(
+                    f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Processing patient_id {patient_id} study {study} in dir {study_path} roomed_time = {roomed_time} dispo_time = {dispo_time}")
 
-        for prefix in sorted(start_times.keys()):
-            # It is assumed that the same info object can be reused for all files in this STUDY
-            info_filename = os.path.join(study_path, prefix + ".info")
-            info_obj = read_info(info_filename)
+            if not os.path.isdir(study_path):
+                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Patient {patient_id} skipped because study path not found {study_path}")
+                break
 
-            for wave_type in WAVEFORM_TYPES:
+            start_times = {}
+            end_times = {}
+            for f in os.listdir(study_path):
+                prefix = f.split(".")[0]  # e.g. STUDY-028806_2020-09-19_00-00-00
+                actual_type = f.split(".")[-2]  # e.g. II
+                if actual_type == "clock":
+                    try:
+                        start_times[prefix] = get_time_from_clock_file(os.path.join(study_path, f), return_type=START)
+                        end_times[prefix] = get_time_from_clock_file(os.path.join(study_path, f), return_type=END)
 
-                if wave_type not in info_obj:
-                    if DEBUG:
-                        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Wave type {wave_type} not found in study {study}")
-                    continue
+                        if min_start is None or min_start > start_times[prefix]:
+                            min_start = start_times[prefix]
+                        if max_end is None or max_end < end_times[prefix]:
+                            max_end = end_times[prefix]
 
+                        if DEBUG:
+                            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > clock file {prefix}: {start_times[prefix]} to {end_times[prefix]}")
+                    except IndexError:
+                        if DEBUG:
+                            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     >>> Clock file was empty")
+            if len(start_times) == 0:
                 if DEBUG:
-                    print(
-                        f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > For {wave_type} prefix {prefix} start={start_times[prefix]} end={end_times[prefix]}")
+                    print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     >>> No clock file found for study " + study)
+                continue
 
-                # Patient start/end always start/end on the second but the waveforms start/end on
-                # the millisecond so we must first trim the waveform to be within the patient time
-                # frame and to ensure that the waveform will be trimmed starting from the start
-                # of a second.
-                waveform_start = start_times[prefix]
-                waveform_end = end_times[prefix]
-                if waveform_start <= dispo_time and roomed_time <= waveform_end:
-                    start_offset_time = max(roomed_time, waveform_start)
-                    end_offset_time = min(dispo_time, waveform_end)
-                    start_offset = get_waveform_offset(waveform_start, start_offset_time,
-                                                       sample_rate=info_obj[wave_type]["sample_rate"])
-                    end_offset = get_waveform_offset(waveform_start, end_offset_time,
-                                                     sample_rate=info_obj[wave_type]["sample_rate"])
-                    filename = os.path.join(study_path, f"{prefix}.{wave_type}.dat")
-                    if wave_type not in waveform_to_metadata:
-                        waveform_to_metadata[wave_type] = []
-                    waveform_to_metadata[wave_type].append({
-                        "start_offset": start_offset,  # this is where we want to trim from
-                        "start_offset_time": start_offset_time,
-                        "end_offset": end_offset,  # this is where we want to trim to
-                        "end_offset_time": end_offset_time,
-                        "filename": filename,
-                        "info": info_obj
-                    })
+            for prefix in sorted(start_times.keys()):
+                # It is assumed that the same info object can be reused for all files in this STUDY
+                info_filename = os.path.join(study_path, prefix + ".info")
+                info_obj = read_info(info_filename)
+
+                for wave_type in WAVEFORM_TYPES:
+
+                    if wave_type not in info_obj:
+                        if DEBUG:
+                            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Wave type {wave_type} not found in study {study}")
+                        continue
+
                     if DEBUG:
                         print(
-                            f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {filename} start={start_offset} end={end_offset} start_offset_time={str(start_offset_time)} end_offset_time={str(end_offset_time)}")
+                            f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > For {wave_type} prefix {prefix} start={start_times[prefix]} end={end_times[prefix]}")
 
-    if len(waveform_to_metadata) == 0:
-        if DEBUG:
-            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > No waveforms found")
+                    # Patient start/end always start/end on the second but the waveforms start/end on
+                    # the millisecond so we must first trim the waveform to be within the patient time
+                    # frame and to ensure that the waveform will be trimmed starting from the start
+                    # of a second.
+                    waveform_start = start_times[prefix]
+                    waveform_end = end_times[prefix]
+                    if waveform_start <= dispo_time and roomed_time <= waveform_end:
+                        start_offset_time = max(roomed_time, waveform_start)
+                        end_offset_time = min(dispo_time, waveform_end)
+                        start_offset = get_waveform_offset(waveform_start, start_offset_time,
+                                                           sample_rate=info_obj[wave_type]["sample_rate"])
+                        end_offset = get_waveform_offset(waveform_start, end_offset_time,
+                                                         sample_rate=info_obj[wave_type]["sample_rate"])
+                        filename = os.path.join(study_path, f"{prefix}.{wave_type}.dat")
+                        if wave_type not in waveform_to_metadata:
+                            waveform_to_metadata[wave_type] = []
+                        waveform_to_metadata[wave_type].append({
+                            "start_offset": start_offset,  # this is where we want to trim from
+                            "start_offset_time": start_offset_time,
+                            "end_offset": end_offset,  # this is where we want to trim to
+                            "end_offset_time": end_offset_time,
+                            "filename": filename,
+                            "info": info_obj
+                        })
+                        if DEBUG:
+                            print(
+                                f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {filename} start={start_offset} end={end_offset} start_offset_time={str(start_offset_time)} end_offset_time={str(end_offset_time)}")
 
-        return {
-            "patient_id": patient_id,
-            "data_length_sec": 0,
-            "min_start": min_start,
-            "max_end": max_end,
-            "trim_start_sec": 0,
-            "trim_end_sec": 0,
-            "roomed_time": roomed_time,
-            "dispo_time": dispo_time,
-            "notes": "no waveforms found",
-            "II": 1 if "II" in waveform_to_metadata else 0,
-            "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
-            "Resp": 1 if "Resp" in waveform_to_metadata else 0,
-            "studies": ",".join(studies),
-            "row": patient_to_row[patient_id]
-        }
-
-    # Our model is based on the assumption that there are lead II waveforms
-    #
-    if "II" not in waveform_to_metadata:
-        if DEBUG:
-            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Lead II not found in waveforms")
-
-        return {
-            "patient_id": patient_id,
-            "data_length_sec": 0,
-            "min_start": min_start,
-            "max_end": max_end,
-            "trim_start_sec": 0,
-            "trim_end_sec": 0,
-            "roomed_time": roomed_time,
-            "dispo_time": dispo_time,
-            "notes": "lead II not found",
-            "II": 1 if "II" in waveform_to_metadata else 0,
-            "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
-            "Resp": 1 if "Resp" in waveform_to_metadata else 0,
-            "studies": ",".join(studies),
-            "row": patient_to_row[patient_id]
-        }
-
-    waveform_type_to_waveform = {}
-    waveform_type_to_times = {}
-    for w, metadata_list in waveform_to_metadata.items():
-        final_waveform, waveform_start_time, waveform_end_time = join_waveforms(patient_id, metadata_list, w)
-        waveform_type_to_waveform[w] = final_waveform
-        waveform_type_to_times[w] = {
-            "start": waveform_start_time,
-            "end": waveform_end_time
-        }
-
-    trim_start_sec, trim_end_sec = get_skip_waveform_seconds(patient_id, waveform_type_to_waveform["II"], "II",
-                                                             WAVEFORM_SAMPLE_RATES["II"])
-    if DEBUG:
-        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Calculated recommended trim to be ({trim_start_sec}, {trim_end_sec})")
-
-    if TRIM_WAVEFORMS:
-        if trim_end_sec - trim_start_sec == 0:
+        if len(waveform_to_metadata) == 0:
             if DEBUG:
-                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > trim start = trim end")
+                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > No waveforms found")
+
             return {
                 "patient_id": patient_id,
                 "data_length_sec": 0,
                 "min_start": min_start,
                 "max_end": max_end,
-                "trim_start_sec": trim_start_sec,
-                "trim_end_sec": trim_end_sec,
+                "trim_start_sec": 0,
+                "trim_end_sec": 0,
                 "roomed_time": roomed_time,
                 "dispo_time": dispo_time,
-                "notes": "trim start is the same as trim end",
+                "notes": "no waveforms found",
                 "II": 1 if "II" in waveform_to_metadata else 0,
                 "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
                 "Resp": 1 if "Resp" in waveform_to_metadata else 0,
@@ -491,80 +442,141 @@ def process_study(input_args):
                 "row": patient_to_row[patient_id]
             }
 
-        for w, waveform in waveform_type_to_waveform.items():
-            sample_rate = WAVEFORM_SAMPLE_RATES[w]
-            waveform_type_to_waveform[w] = waveform_type_to_waveform[w][
-                                           int(trim_start_sec * sample_rate):int(trim_end_sec * sample_rate)]
+        # Our model is based on the assumption that there are lead II waveforms
+        #
+        if "II" not in waveform_to_metadata:
+            if DEBUG:
+                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Lead II not found in waveforms")
 
-    data_length_sec = round(len(waveform_type_to_waveform["II"]) / WAVEFORM_SAMPLE_RATES["II"], 1)
-    for w, waveform in waveform_type_to_waveform.items():
+            return {
+                "patient_id": patient_id,
+                "data_length_sec": 0,
+                "min_start": min_start,
+                "max_end": max_end,
+                "trim_start_sec": 0,
+                "trim_end_sec": 0,
+                "roomed_time": roomed_time,
+                "dispo_time": dispo_time,
+                "notes": "lead II not found",
+                "II": 1 if "II" in waveform_to_metadata else 0,
+                "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
+                "Resp": 1 if "Resp" in waveform_to_metadata else 0,
+                "studies": ",".join(studies),
+                "row": patient_to_row[patient_id]
+            }
+
+        waveform_type_to_waveform = {}
+        waveform_type_to_times = {}
+        for w, metadata_list in waveform_to_metadata.items():
+            final_waveform, waveform_start_time, waveform_end_time = join_waveforms(patient_id, metadata_list, w)
+            waveform_type_to_waveform[w] = final_waveform
+            waveform_type_to_times[w] = {
+                "start": waveform_start_time,
+                "end": waveform_end_time
+            }
+
+        trim_start_sec, trim_end_sec = get_skip_waveform_seconds(patient_id, waveform_type_to_waveform["II"], "II",
+                                                                 WAVEFORM_SAMPLE_RATES["II"])
         if DEBUG:
-            print(
-                f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {w} has length {len(waveform)} corresponding to {len(waveform) / WAVEFORM_SAMPLE_RATES[w]} secs")
+            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Calculated recommended trim to be ({trim_start_sec}, {trim_end_sec})")
 
-        wave_length = len(waveform) / WAVEFORM_SAMPLE_RATES[w]
-        # Rounding to 1 decimal place to account for how Resp is sampled at 62.5
-        if data_length_sec != round(wave_length, 1):
-            # Sometimes we have observed that the waveforms available change after rollover to the next day
-            # so it is possible for inconsistent lengths to occur.
-            #
-            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > [WARN] Inconsistent lengths detected")
+        if TRIM_WAVEFORMS:
+            if trim_end_sec - trim_start_sec == 0:
+                if DEBUG:
+                    print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > trim start = trim end")
+                return {
+                    "patient_id": patient_id,
+                    "data_length_sec": 0,
+                    "min_start": min_start,
+                    "max_end": max_end,
+                    "trim_start_sec": trim_start_sec,
+                    "trim_end_sec": trim_end_sec,
+                    "roomed_time": roomed_time,
+                    "dispo_time": dispo_time,
+                    "notes": "trim start is the same as trim end",
+                    "II": 1 if "II" in waveform_to_metadata else 0,
+                    "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
+                    "Resp": 1 if "Resp" in waveform_to_metadata else 0,
+                    "studies": ",".join(studies),
+                    "row": patient_to_row[patient_id]
+                }
 
-    
-    # Extract numerics data
-    #
-    numerics, pt = process_numerics_file(patient_id, study_to_study_folder, studies, roomed_time, dispo_time)
+            for w, waveform in waveform_type_to_waveform.items():
+                sample_rate = WAVEFORM_SAMPLE_RATES[w]
+                waveform_type_to_waveform[w] = waveform_type_to_waveform[w][
+                                               int(trim_start_sec * sample_rate):int(trim_end_sec * sample_rate)]
 
-    # Save output files
-    #
-#     output_obj = {
-#         "data_length_sec": data_length_sec,
-#         "min_start": min_start,
-#         "max_end": max_end,
-#         "roomed_time": roomed_time,
-#         "dispo_time": dispo_time,
-#         "trim_start_sec": trim_start_sec,
-#         "trim_end_sec": trim_end_sec,
-#         "waveform_type_to_times": waveform_type_to_times,
-#         "supported_types": list(waveform_type_to_waveform.keys())
-#     }
-
-    patient_output_path = os.path.join(output_dir, str(patient_id))
-    Path(patient_output_path).mkdir(parents=True, exist_ok=True)
-    output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
-    with h5py.File(output_save_path, "w") as f:
-        dset = f.create_group("numerics")
-        if numerics is not None:
-            for k in numerics.keys():
-                dset.create_dataset(k, data=numerics[k])
-            
-        dset = f.create_group("waveforms")
+        data_length_sec = round(len(waveform_type_to_waveform["II"]) / WAVEFORM_SAMPLE_RATES["II"], 1)
         for w, waveform in waveform_type_to_waveform.items():
-            dset.create_dataset(w, data=waveform)
+            if DEBUG:
+                print(
+                    f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {w} has length {len(waveform)} corresponding to {len(waveform) / WAVEFORM_SAMPLE_RATES[w]} secs")
 
-    # Return patient summary
-    #
-    return {
-        "patient_id": patient_id,
-        "data_length_sec": data_length_sec,
-        "min_start": min_start,
-        "max_end": max_end,
-        "trim_start_sec": trim_start_sec,
-        "trim_end_sec": trim_end_sec,
-        "roomed_time": roomed_time,
-        "dispo_time": dispo_time,
-        "waveform_start_time": waveform_type_to_times["II"]["start"],
-        "waveform_end_time": waveform_type_to_times["II"]["end"],
-        "notes": "",
-        "II": 1 if "II" in waveform_to_metadata else 0,
-        "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
-        "Resp": 1 if "Resp" in waveform_to_metadata else 0,
-        "studies": ",".join(studies),
-        "row": patient_to_row[patient_id]
-    }
+            wave_length = len(waveform) / WAVEFORM_SAMPLE_RATES[w]
+            # Rounding to 1 decimal place to account for how Resp is sampled at 62.5
+            if data_length_sec != round(wave_length, 1):
+                # Sometimes we have observed that the waveforms available change after rollover to the next day
+                # so it is possible for inconsistent lengths to occur.
+                #
+                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > [WARN] Inconsistent lengths detected")
 
 
-def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir):
+        # Extract numerics data
+        #
+        numerics, pt = process_numerics_file(patient_id, study_to_study_folder, studies, roomed_time, dispo_time)
+
+        # Save output files
+        #
+    #     output_obj = {
+    #         "data_length_sec": data_length_sec,
+    #         "min_start": min_start,
+    #         "max_end": max_end,
+    #         "roomed_time": roomed_time,
+    #         "dispo_time": dispo_time,
+    #         "trim_start_sec": trim_start_sec,
+    #         "trim_end_sec": trim_end_sec,
+    #         "waveform_type_to_times": waveform_type_to_times,
+    #         "supported_types": list(waveform_type_to_waveform.keys())
+    #     }
+
+        patient_output_path = os.path.join(output_dir, str(patient_id))
+        Path(patient_output_path).mkdir(parents=True, exist_ok=True)
+        output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
+        with h5py.File(output_save_path, "w") as f:
+            dset = f.create_group("numerics")
+            if numerics is not None:
+                for k in numerics.keys():
+                    dset.create_dataset(k, data=numerics[k])
+
+            dset = f.create_group("waveforms")
+            for w, waveform in waveform_type_to_waveform.items():
+                dset.create_dataset(w, data=waveform)
+
+        # Return patient summary
+        #
+        return {
+            "patient_id": patient_id,
+            "data_length_sec": data_length_sec,
+            "min_start": min_start,
+            "max_end": max_end,
+            "trim_start_sec": trim_start_sec,
+            "trim_end_sec": trim_end_sec,
+            "roomed_time": roomed_time,
+            "dispo_time": dispo_time,
+            "waveform_start_time": waveform_type_to_times["II"]["start"],
+            "waveform_end_time": waveform_type_to_times["II"]["end"],
+            "notes": "",
+            "II": 1 if "II" in waveform_to_metadata else 0,
+            "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
+            "Resp": 1 if "Resp" in waveform_to_metadata else 0,
+            "studies": ",".join(studies),
+            "row": patient_to_row[patient_id]
+        }
+    except:
+        return None
+
+
+def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir, limit):
     patient_id_to_results = {}
 
     fs = []
@@ -572,7 +584,7 @@ def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row,
         i = 0
         for patient_id, studies in tqdm(patient_to_studies.items(), disable=True):
             i += 1
-            if LIMIT is not None and i > LIMIT:
+            if limit is not None and i > limit:
                 break
 
             input_args = [i, len(patient_to_studies), patient_id, studies, patient_to_actual_times,
@@ -736,15 +748,17 @@ if __name__ == '__main__':
     output_file = sys.argv[4]
 
     if len(sys.argv) > 5:
-        LIMIT = int(sys.argv[5])
+        limit = int(sys.argv[5])
+    else:
+        limit = None
 
     print("=" * 30)
-    print(f"Starting data consolidation with mapping_file={mapping_file}, exports_file={exports_file}, waveform_types={WAVEFORM_TYPES}, limit={LIMIT}")
+    print(f"Starting data consolidation with mapping_file={mapping_file}, exports_file={exports_file}, waveform_types={WAVEFORM_TYPES}, limit={limit}")
     print("-" * 30)
 
     patient_to_actual_times, patient_to_row = load_mapping_file(mapping_file)
     patient_to_studies, study_to_info, study_to_study_folder = load_exports_file(exports_file)
-    patient_id_to_results = process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir)
+    patient_id_to_results = process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir, limit)
 
     print("==" * 30)
     write_output_file(patient_id_to_results, output_file)
