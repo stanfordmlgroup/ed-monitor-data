@@ -16,10 +16,11 @@ Each patient visit will be written out in the following format to the output fol
     - Resp.dat
 
 Usage:
-- python -u /deep/u/tomjin/ed-monitor-data/processing/consolidate_numerics_waveforms.py /deep/group/ed-monitor-self-supervised/v1/matched-cohort.csv /deep/group/ed-monitor-self-supervised/v1/matched-export.csv /deep/group/ed-monitor-self-supervised/v1/patient-data /deep/group/ed-monitor-self-supervised/v1/consolidated.csv 3
+- python -u /deep/u/tomjin/ed-monitor-data/processing/consolidate_numerics_waveforms.py -m /deep/group/ed-monitor-self-supervised/v3/matched-cohort.csv -e /deep/group/ed-monitor-self-supervised/v3/matched-export.csv -o /deep/group/ed-monitor-self-supervised/v3/patient-data -f /deep/group/ed-monitor-self-supervised/v3/consolidated.csv -l 3
 
 """
 
+import argparse
 import datetime
 import pandas as pd
 import numpy as np
@@ -75,6 +76,7 @@ WAVEFORM_SAMPLE_RATES = {
     "V": 500,
     "aVR": 500,
     "Pleth": 125,
+    "ABP": 125,
     "Resp": 62.5
 }
 
@@ -425,7 +427,7 @@ def process_study(input_args):
             if DEBUG:
                 print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > No waveforms found")
 
-            return {
+            obj = {
                 "patient_id": patient_id,
                 "data_length_sec": 0,
                 "min_start": min_start,
@@ -435,12 +437,12 @@ def process_study(input_args):
                 "roomed_time": roomed_time,
                 "dispo_time": dispo_time,
                 "notes": "no waveforms found",
-                "II": 1 if "II" in waveform_to_metadata else 0,
-                "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
-                "Resp": 1 if "Resp" in waveform_to_metadata else 0,
                 "studies": ",".join(studies),
                 "row": patient_to_row[patient_id]
             }
+            for wt in WAVEFORM_TYPES:
+                obj[wt] = 1 if wt in waveform_to_metadata else 0
+            return obj
 
         # Our model is based on the assumption that there are lead II waveforms
         #
@@ -448,7 +450,7 @@ def process_study(input_args):
             if DEBUG:
                 print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Lead II not found in waveforms")
 
-            return {
+            obj = {
                 "patient_id": patient_id,
                 "data_length_sec": 0,
                 "min_start": min_start,
@@ -458,12 +460,12 @@ def process_study(input_args):
                 "roomed_time": roomed_time,
                 "dispo_time": dispo_time,
                 "notes": "lead II not found",
-                "II": 1 if "II" in waveform_to_metadata else 0,
-                "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
-                "Resp": 1 if "Resp" in waveform_to_metadata else 0,
                 "studies": ",".join(studies),
                 "row": patient_to_row[patient_id]
             }
+            for wt in WAVEFORM_TYPES:
+                obj[wt] = 1 if wt in waveform_to_metadata else 0
+            return obj
 
         waveform_type_to_waveform = {}
         waveform_type_to_times = {}
@@ -484,7 +486,7 @@ def process_study(input_args):
             if trim_end_sec - trim_start_sec == 0:
                 if DEBUG:
                     print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > trim start = trim end")
-                return {
+                obj = {
                     "patient_id": patient_id,
                     "data_length_sec": 0,
                     "min_start": min_start,
@@ -494,12 +496,12 @@ def process_study(input_args):
                     "roomed_time": roomed_time,
                     "dispo_time": dispo_time,
                     "notes": "trim start is the same as trim end",
-                    "II": 1 if "II" in waveform_to_metadata else 0,
-                    "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
-                    "Resp": 1 if "Resp" in waveform_to_metadata else 0,
                     "studies": ",".join(studies),
                     "row": patient_to_row[patient_id]
                 }
+                for wt in WAVEFORM_TYPES:
+                    obj[wt] = 1 if wt in waveform_to_metadata else 0
+                return obj
 
             for w, waveform in waveform_type_to_waveform.items():
                 sample_rate = WAVEFORM_SAMPLE_RATES[w]
@@ -554,7 +556,7 @@ def process_study(input_args):
 
         # Return patient summary
         #
-        return {
+        obj = {
             "patient_id": patient_id,
             "data_length_sec": data_length_sec,
             "min_start": min_start,
@@ -566,21 +568,23 @@ def process_study(input_args):
             "waveform_start_time": waveform_type_to_times["II"]["start"],
             "waveform_end_time": waveform_type_to_times["II"]["end"],
             "notes": "",
-            "II": 1 if "II" in waveform_to_metadata else 0,
-            "Pleth": 1 if "Pleth" in waveform_to_metadata else 0,
-            "Resp": 1 if "Resp" in waveform_to_metadata else 0,
             "studies": ",".join(studies),
             "row": patient_to_row[patient_id]
         }
+        for wt in WAVEFORM_TYPES:
+            obj[wt] = 1 if wt in waveform_to_metadata else 0
+        return obj
     except:
         return None
 
 
 def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir, limit):
     patient_id_to_results = {}
+    
+    print(f"Using WAVEFORM_TYPES = {WAVEFORM_TYPES}")
 
     fs = []
-    with futures.ProcessPoolExecutor(16) as executor:
+    with futures.ThreadPoolExecutor(16) as executor:
         i = 0
         for patient_id, studies in tqdm(patient_to_studies.items(), disable=True):
             i += 1
@@ -692,8 +696,10 @@ def write_output_file(patient_id_to_results, output_file):
         writer = csv.writer(f, delimiter=',', quotechar='"')
         headers = ["patient_id", "roomed_time", "dispo_time", "waveform_start_time", "waveform_end_time", "visit_length_sec", "data_length_sec",
                    "data_available_offset_sec", "data_start_offset_sec", "recommended_trim_start_sec",
-                   "recommended_trim_end_sec", "min_study_start", "max_study_end", "II_available", "Pleth_available",
-                   "Resp_available", "studies", "notes"]
+                   "recommended_trim_end_sec", "min_study_start", "max_study_end"]
+        for wt in sorted(WAVEFORM_TYPES):
+            headers.append(f"{wt}_available")
+        headers.extend(["studies", "notes"])
         
         # Add additional headers
         random_pt = next(iter(patient_id_to_results))
@@ -723,7 +729,11 @@ def write_output_file(patient_id_to_results, output_file):
 
             row = [k, str(v["roomed_time"]), str(v["dispo_time"]), waveform_start_time, waveform_end_time, visit_length_sec, v["data_length_sec"],
                    data_available_offset_sec, data_start_offset_sec, v["trim_start_sec"], v["trim_end_sec"],
-                   str(v["min_start"]), str(v["max_end"]), v["II"], v["Pleth"], v["Resp"], v["studies"], v["notes"]]
+                   str(v["min_start"]), str(v["max_end"])]
+            
+            for wt in sorted(WAVEFORM_TYPES):
+                row.append(v[wt])
+            row.extend([v["studies"], v["notes"]])
             
             # Append the data from the original file
             for k in additional_headers:
@@ -735,20 +745,47 @@ def write_output_file(patient_id_to_results, output_file):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Retrieves and consolidates numeric and waveform data from raw study folder')
+    parser.add_argument('-m', '--mapping-file',
+                        required=True,
+                        help='The path to a matched cohort file. e.g. " /deep/group/ed-monitor-self-supervised/v3/matched-cohort.csv"')
+    parser.add_argument('-e', '--exports-file',
+                        required=True,
+                        help='Exports file e.g. "/deep/group/ed-monitor-self-supervised/v3/matched-export.csv"')
+    parser.add_argument('-o', '--output-dir',
+                        required=True,
+                        help='Folder where you should output the H5 files e.g. /deep/group/ed-monitor-self-supervised/v3/patient-data')
+    parser.add_argument('-f', '--output-file',
+                        required=True,
+                        help='The path to the output consolidated summary file. e.g. "/deep/group/ed-monitor-self-supervised/v3/consolidated.csv"')
+    parser.add_argument('-t', '--waveform-types',
+                        required=False,
+                        default=None,
+                        help='Comma separated list of waveform types')
+    parser.add_argument('-l', '--limit',
+                        required=False,
+                        default=None,
+                        help='Maximum number of patients to produce')
+
+    args = parser.parse_args()
+    
     # Mapping file contains the original cohort information. It is primarily used here to retrieve basic information on the patient.
-    mapping_file = sys.argv[1]
+    mapping_file = args.mapping_file
 
     # Exports file contains the patient and STUDY ID relationship.
-    exports_file = sys.argv[2]
+    exports_file = args.exports_file
 
     # Where the data files should be written to
-    output_dir = sys.argv[3]
+    output_dir = args.output_dir
 
     # Where the output summary should be written to
-    output_file = sys.argv[4]
+    output_file = args.output_file
 
-    if len(sys.argv) > 5:
-        limit = int(sys.argv[5])
+    if args.waveform_types is not None:
+        WAVEFORM_TYPES = set(args.waveform_types.split(","))
+    
+    if args.limit is not None:
+        limit = int(args.limit)
     else:
         limit = None
 
