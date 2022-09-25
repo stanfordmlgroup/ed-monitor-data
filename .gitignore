@@ -1,0 +1,7 @@
+example_data
+.idea
+submissions/
+.ipynb_checkpoints/
+lightning_logs/
+__pycache__/
+checkpoints/
