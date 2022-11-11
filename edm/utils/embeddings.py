@@ -159,17 +159,17 @@ def clean_additional_columns(df_train, df_val, df_test, cols_to_clean=[], ordina
     if normalize:
         sc = StandardScaler()
         df_train_sub = pd.DataFrame(
-            sc.fit_transform(df_train_sub), 
+            sc.fit_transform(df_train_sub),
             index=df_train_sub.index,
             columns=df_train_sub.columns
         )
         df_val_sub = pd.DataFrame(
-            sc.transform(df_val_sub), 
+            sc.transform(df_val_sub),
             index=df_val_sub.index,
             columns=df_val_sub.columns
         )
         df_test_sub = pd.DataFrame(
-            sc.transform(df_test_sub), 
+            sc.transform(df_test_sub),
             index=df_test_sub.index,
             columns=df_test_sub.columns
         )

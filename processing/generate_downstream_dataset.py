@@ -23,6 +23,7 @@ from edm.utils.waveforms import WAVEFORMS_OF_INTERST, get_waveform
 from tqdm import tqdm
 
 import warnings
+
 warnings.filterwarnings("ignore")
 
 pd.set_option('display.max_columns', None)
@@ -33,7 +34,7 @@ WAVEFORM_COLUMNS = [TYPE_II, TYPE_PLETH]
 NUMERIC_COLUMNS = ['HR', 'RR', 'SpO2', 'btbRRInt_ms', 'NBPs', 'NBPd', 'Perf']
 TARGET_FREQ = {
     TYPE_II: 500,
-#     TYPE_II: 125, // 125 is used for the self-supervised project
+    #     TYPE_II: 125, // 125 is used for the self-supervised project
     TYPE_PLETH: 125,
 }
 VERBOSE = False
@@ -52,7 +53,8 @@ def get_numerics(numerics_obj, start_epoch, end_epoch, pre_numerics_len_sec):
     end = end_epoch
     output = {}
     for col in NUMERIC_COLUMNS:
-        output[col] = np.zeros(pre_numerics_len_sec)  # Roughly reserve space for 1 data point per sec (required to obtain a square matrix)
+        output[col] = np.zeros(
+            pre_numerics_len_sec)  # Roughly reserve space for 1 data point per sec (required to obtain a square matrix)
         output[col][:] = np.NaN
         output[f"{col}-time"] = np.zeros(pre_numerics_len_sec)
         output[f"{col}-length"] = 0
@@ -116,22 +118,22 @@ def get_numerics_averaged_by_minute(numerics_obj, start_epoch, end_epoch, post_n
     return output
 
 
-def get_best_waveforms(f, start_time, end_time, waveform_len_sec, stride_length_sec=10):
+def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec, stride_length_sec=10):
     type_to_waveform = {}
 
     # We start looking for waveforms from the left, trying to find the first good waveform
     #
-    current_time = start_time
+    current_time = start_time + timedelta(seconds=(start_trim_sec))
     best_waveforms = None
     best_qualities = []
 
     # For each sliding window...
     while current_time <= (end_time - timedelta(seconds=waveform_len_sec)):
-        
+
         # Quality check must pass for all waveform types
         local_waveforms = []
         local_qualities = []
-        
+
         # Get waveforms for current window
         for waveform_type in WAVEFORM_COLUMNS:
             waveform_config = WAVEFORMS_OF_INTERST[waveform_type]
@@ -150,7 +152,7 @@ def get_best_waveforms(f, start_time, end_time, waveform_len_sec, stride_length_
                                              msq_min=0.25)
             local_waveforms.append(waveform)
             local_qualities.append(quality)
-        
+
         # Ensure quality is met for all waveforms
         #
         if sum(local_qualities) == len(WAVEFORM_COLUMNS):
@@ -162,15 +164,15 @@ def get_best_waveforms(f, start_time, end_time, waveform_len_sec, stride_length_
         else:
             # Continue searching the next window to see if the waveform is any better
             # We always keep the last waveform with the assumption that waveforms get
-            # better in further windows (e.g. setup issues in initial windows) unless 
+            # better in further windows (e.g. setup issues in initial windows) unless
             # the quality got worse
-            
+
             if best_waveforms is None or sum(best_qualities) <= sum(local_qualities):
                 best_waveforms = local_waveforms
                 best_qualities = local_qualities
 
             current_time += timedelta(seconds=stride_length_sec)
-#             print(f"Continuing search...")
+            #             print(f"Continuing search...")
             continue
 
     for k, waveform_type in enumerate(WAVEFORM_COLUMNS):
@@ -226,14 +228,13 @@ def process_patient(input_args):
 
             waveform_start = row["waveform_start_time"].item()
             waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S%z')
-            waveform_end = row["waveform_end_time"].item()
-            waveform_end = datetime.strptime(waveform_end, '%Y-%m-%d %H:%M:%S%z')
-            
-            # We don't actually take into account the recommended trim - it is probably less 
-            # efficient since we will iterate through 'bad' segments but it makes calculating 
-            # the times easier. Recommended trim is also not as accurate as the waveform 
-            # selection algorithm used here.
-            start_time = waveform_start
+
+            recommended_trim_start_sec = int(row["recommended_trim_start_sec"].item())
+
+            # start_time is when the waveform monitoring starts (note that anything before the
+            # recommended trim was an empty array, even though it might have technically been
+            # part of the patient's visit)
+            start_time = waveform_start + timedelta(seconds=(recommended_trim_start_sec))
             alignment_time = start_time + timedelta(seconds=(pre_minutes_min * 60))
             end_time = alignment_time + timedelta(seconds=(post_minutes_min * 60))
 
@@ -246,15 +247,17 @@ def process_patient(input_args):
                 print(f"alignment_time = {alignment_time}")
                 print(f"end_time = {end_time}")
 
-            type_to_waveform_obj = get_best_waveforms(f, start_time, alignment_time, waveform_length_sec)
+            type_to_waveform_obj = get_best_waveforms(f, waveform_start, recommended_trim_start_sec, alignment_time, waveform_length_sec)
 
-            numerics_map_before = get_numerics(f["numerics"], start_time_epoch, alignment_time_epoch, pre_numerics_len_sec=pre_minutes_min * 60)
+            numerics_map_before = get_numerics(f["numerics"], start_time_epoch, alignment_time_epoch,
+                                               pre_numerics_len_sec=pre_minutes_min * 60)
             for col in NUMERIC_COLUMNS:
                 output["numerics_before"][col]["vals"].append(numerics_map_before[col])
                 output["numerics_before"][col]["times"].append(numerics_map_before[f"{col}-time"])
                 output["numerics_before"][col]["lengths"].append(numerics_map_before[f"{col}-length"])
 
-            numerics_map_after = get_numerics_averaged_by_minute(f["numerics"], alignment_time_epoch, end_time_epoch, post_minutes_min)
+            numerics_map_after = get_numerics_averaged_by_minute(f["numerics"], alignment_time_epoch, end_time_epoch,
+                                                                 post_minutes_min)
             for col in NUMERIC_COLUMNS:
                 output["numerics_after"][col]["vals"].append(numerics_map_after[col])
                 output["numerics_after"][col]["times"].append(numerics_map_after[f"{col}-time"])
@@ -429,9 +432,11 @@ if __name__ == '__main__':
     print("=" * 30)
     print(
         f"Starting data generation with input_dir={input_dir}, input_file={input_file}, output_data_file={output_data_file}, output_summary_file={output_summary_file}")
-    print(f"waveform_length_sec={waveform_length_sec}, pre_minutes_min={pre_minutes_min}, post_minutes_min={post_minutes_min}")
+    print(
+        f"waveform_length_sec={waveform_length_sec}, pre_minutes_min={pre_minutes_min}, post_minutes_min={post_minutes_min}")
     print("-" * 30)
 
-    run(input_dir, input_file, output_data_file, output_summary_file, waveform_length_sec, pre_minutes_min, post_minutes_min, limit)
+    run(input_dir, input_file, output_data_file, output_summary_file, waveform_length_sec, pre_minutes_min,
+        post_minutes_min, limit)
 
     print("DONE")
