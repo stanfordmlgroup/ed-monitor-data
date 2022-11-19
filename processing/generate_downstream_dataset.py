@@ -15,6 +15,7 @@ import argparse
 import csv
 from concurrent import futures
 from datetime import datetime, timedelta
+from dateutil import parser as dt_parser
 
 import h5py
 import numpy as np
@@ -192,7 +193,7 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
 
 
 def process_patient(input_args):
-    i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min = input_args
+    i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, align_col = input_args
 
     filename = f"{input_folder}/{csn}/{csn}.h5"
     print(f"[{i}/{df.shape[0]}] Working on patient {csn} at {filename}")
@@ -228,6 +229,11 @@ def process_patient(input_args):
 
             waveform_start = row["waveform_start_time"].item()
             waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S%z')
+            if align_col is not None:
+                max_alignment_time = row[align_col].item()
+                max_alignment_time = dt_parser.parse(max_alignment_time).replace(tzinfo=waveform_start.tzinfo)
+            else:
+                max_alignment_time = None
 
             recommended_trim_start_sec = int(row["recommended_trim_start_sec"].item())
 
@@ -236,14 +242,32 @@ def process_patient(input_args):
             # part of the patient's visit)
             start_time = waveform_start + timedelta(seconds=(recommended_trim_start_sec))
             alignment_time = start_time + timedelta(seconds=(pre_minutes_min * 60))
+
+            if max_alignment_time is not None:
+                # The idea is that we take either the minimum of the alignment time we derived from
+                # the specified pre minutes or the max alignment time. Example:
+                # Say we had pre-minutes of 10 min
+                #
+                # -------------------------
+                #    ^
+                #    calculated alignment time
+                #             ^ max alignment time
+                #  We choose the actual alignment time here to be the calculated alignment time.
+                #
+                if max_alignment_time.timestamp() < alignment_time.timestamp():
+                    alignment_time = max_alignment_time
+
             end_time = alignment_time + timedelta(seconds=(post_minutes_min * 60))
 
             start_time_epoch = int(start_time.timestamp())
             alignment_time_epoch = int(alignment_time.timestamp())
             end_time_epoch = int(end_time.timestamp())
 
+
+
             if VERBOSE:
                 print(f"start_time = {start_time}")
+                print(f"max_alignment_time = {max_alignment_time}")
                 print(f"alignment_time = {alignment_time}")
                 print(f"end_time = {end_time}")
 
@@ -281,7 +305,7 @@ def process_patient(input_args):
 
 
 def run(input_folder, input_file, output_data_file, output_summary_file,
-        waveform_length_sec, pre_minutes_min, post_minutes_min, limit):
+        waveform_length_sec, pre_minutes_min, post_minutes_min, align_col, limit):
     df = pd.read_csv(input_file)
     patients = df["patient_id"].tolist()
 
@@ -316,7 +340,7 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             if limit is not None and i > limit:
                 break
 
-            input_args = [i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min]
+            input_args = [i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, align_col]
             future = executor.submit(process_patient, input_args)
             fs.append(future)
 
@@ -408,6 +432,9 @@ if __name__ == '__main__':
     parser.add_argument('-po', '--post-minutes',
                         default=60,
                         help='Number of minutes of averaged data after the high resolution window to use as the prediction outcome')
+    parser.add_argument('-a', '--align',
+                        default=None,
+                        help='Specify a column to use as the maximum alignment column. e.g. we might want to collect as much numerics before the first blood draw time')
 
     args = parser.parse_args()
 
@@ -429,6 +456,8 @@ if __name__ == '__main__':
 
     limit = int(args.max_patients) if args.max_patients is not None else None
 
+    align_col = args.align
+
     print("=" * 30)
     print(
         f"Starting data generation with input_dir={input_dir}, input_file={input_file}, output_data_file={output_data_file}, output_summary_file={output_summary_file}")
@@ -437,6 +466,6 @@ if __name__ == '__main__':
     print("-" * 30)
 
     run(input_dir, input_file, output_data_file, output_summary_file, waveform_length_sec, pre_minutes_min,
-        post_minutes_min, limit)
+        post_minutes_min, align_col, limit)
 
     print("DONE")
