@@ -97,20 +97,33 @@ def get_numerics_averaged_by_minute(numerics_obj, start_epoch, end_epoch, post_n
             temp_min = 0
             temp_list = []
             valid_vals = 0
+
+            # Handle case where there are gaps in the recorded data at the start
+            while times[indices_of_interest[0]] >= (start + (temp_min + 1) * 60):
+                output[f"{col}-time"][temp_min] = start + temp_min * 60
+                output[col][temp_min] = np.nan
+                temp_min += 1
+
             for idx in indices_of_interest:
-                #                 if VERBOSE:
-                #                     print(f"idx = {idx}")
                 if temp_min >= post_numerics_min:
                     break
                 if (start + temp_min * 60) <= times[idx] < (start + (temp_min + 1) * 60):
                     temp_list.append(vals[idx])
                 else:
-                    output[col][temp_min] = np.mean(temp_list)
                     output[f"{col}-time"][temp_min] = start + temp_min * 60
-                    if len(temp_list) > 0:
+                    if len(temp_list) == 0:
+                        output[col][temp_min] = np.nan
+                    else:
+                        output[col][temp_min] = np.mean(temp_list)
                         valid_vals += 1
                     temp_list = [vals[idx]]
                     temp_min += 1
+
+                    # Handle case where there are gaps in the recorded data
+                    while times[idx] >= (start + (temp_min + 1) * 60):
+                        output[f"{col}-time"][temp_min] = start + temp_min * 60
+                        output[col][temp_min] = np.nan
+                        temp_min += 1
 
             if len(temp_list) > 0 and temp_min < post_numerics_min:
                 output[col][temp_min] = np.mean(temp_list)

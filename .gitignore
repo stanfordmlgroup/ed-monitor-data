@@ -5,3 +5,6 @@ submissions/
 lightning_logs/
 __pycache__/
 checkpoints/
+resources/
+.DS_Store
+venv/
