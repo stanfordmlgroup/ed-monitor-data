@@ -74,7 +74,7 @@ def butter_bandpass(raw_segment, sampling_rate=125):
 
 
 def get_waveform(waveform, start, window_sz, orig_fs, should_normalize=False, bandpass_type=None,
-                 bandwidth=[3, 45], target_fs=None, waveform_type="II", skewness_max=0.4, msq_min=0.25):
+                 bandwidth=[3, 45], target_fs=None, waveform_type="II", skewness_max=0.87, msq_min=0.27):
     waveform = waveform[(start):(start + window_sz)]
     if bandpass_type == "cheby2":
         # Recommended by https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6316358/
@@ -99,7 +99,9 @@ def get_waveform(waveform, start, window_sz, orig_fs, should_normalize=False, ba
 
     failed_selection = False
     penalty = 0
-    if waveform_type == "II":
+    if len(waveform) == 0:
+        failed_selection = True
+    elif waveform_type == "II":
         #
         # ECG waveform selection strategy
         #
@@ -131,16 +133,19 @@ def get_waveform(waveform, start, window_sz, orig_fs, should_normalize=False, ba
         #
         
         # Check that skew and MSQ are within acceptable bounds (hyperparameter)
+        # for each 5 sec window.
         # 
-        ppg_assess = segment_PPG_SQI_extraction(waveform, target_fs)
-        if abs(ppg_assess['skewness_mean']) >= skewness_max or ppg_assess['msq'] < msq_min:
-            failed_selection = True
-        
-        # Check for stationary segments (e.g. flat-line)
-        # Note that this is an expensive call, so we prefer not to run it if possible
-        #
-        if not failed_selection and contains_stationary_segments(waveform):
-            failed_selection = True
+        for k in range(3):
+            seg_len = int(len(waveform) / 3)
+            ppg_assess = segment_PPG_SQI_extraction(waveform[k*seg_len:(k+1)*seg_len], target_fs)
+            if abs(ppg_assess['skewness_mean']) >= skewness_max or ppg_assess['msq'] < msq_min:
+                failed_selection = True
+
+            # Check for stationary segments (e.g. flat-line)
+            # Note that this is an expensive call, so we prefer not to run it if possible
+            #
+            if not failed_selection and contains_stationary_segments(waveform):
+                failed_selection = True
 
     else:
         # Not yet implemented

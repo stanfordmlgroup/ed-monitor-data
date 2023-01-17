@@ -16,6 +16,7 @@ import csv
 from concurrent import futures
 from datetime import datetime, timedelta
 from dateutil import parser as dt_parser
+import traceback
 
 import h5py
 import numpy as np
@@ -119,7 +120,7 @@ def get_numerics_averaged_by_minute(numerics_obj, start_epoch, end_epoch, post_n
     return output
 
 
-def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec, stride_length_sec=10):
+def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec, stride_length_sec=10, csn=None):
     type_to_waveform = {}
 
     # We start looking for waveforms from the left, trying to find the first good waveform
@@ -128,8 +129,17 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
     best_waveforms = None
     best_qualities = []
 
+    # Sanity check that the waveforms are all actually present and not just empty array (saves time)
+    for waveform_type in WAVEFORM_COLUMNS:
+        waveform_config = WAVEFORMS_OF_INTERST[waveform_type]
+        waveform_base = np.array(f["waveforms"][waveform_type])
+        if len(waveform_base) == 0 or (waveform_base == waveform_base[0]).all():
+            # The waveform is just empty so skip this patient
+            raise Exception(f"Waveform {waveform_type} is empty")
+
     # For each sliding window...
     while current_time <= (end_time - timedelta(seconds=waveform_len_sec)):
+#         print(f"[{datetime.now().isoformat()}] [{csn}] Checking window {current_time}")
 
         # Quality check must pass for all waveform types
         local_waveforms = []
@@ -141,16 +151,25 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
 
             waveform_base = f["waveforms"][waveform_type]
             start = get_waveform_offsets(start_time, current_time, waveform_config["orig_frequency"])
-            waveform, quality = get_waveform(waveform_base, start,
-                                             int(waveform_len_sec * waveform_config["orig_frequency"]),
+            seg_len = int(waveform_len_sec * waveform_config["orig_frequency"])
+            if len(waveform_base[start:(start + seg_len)]) < seg_len:
+                # If the waveform is not of expected size, there is no point continuing
+                continue
+            try:
+                waveform, quality = get_waveform(waveform_base, start, seg_len,
                                              waveform_config["orig_frequency"],
                                              should_normalize=False,
                                              bandpass_type=waveform_config["bandpass_type"],
                                              bandwidth=waveform_config["bandpass_freq"],
                                              target_fs=TARGET_FREQ[waveform_type],
                                              waveform_type=waveform_type,
-                                             skewness_max=0.3,
-                                             msq_min=0.25)
+                                             skewness_max=0.87,
+                                             msq_min=0.27)
+            except Exception as et:
+                # Fail fast because this represents an error case - we assumed that the windows in this range 
+                # are all good so we should raise an error when we get into this exceptional case
+                print(f"[{datetime.now().isoformat()}] [{csn}] A window at start={start} could not be parsed due to {et}")
+                raise et
             local_waveforms.append(waveform)
             local_qualities.append(quality)
 
@@ -160,7 +179,7 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
             # Great, we have found an acceptable waveform
             best_waveforms = local_waveforms
             best_qualities = local_qualities
-            # print(f"Found acceptable waveform")
+#             print(f"[{datetime.now().isoformat()}] [{csn}] Good window found")
             break
         else:
             # Continue searching the next window to see if the waveform is any better
@@ -173,11 +192,15 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
                 best_qualities = local_qualities
 
             current_time += timedelta(seconds=stride_length_sec)
-            #             print(f"Continuing search...")
+#             print(f"[{datetime.now().isoformat()}] [{csn}] Bad window found, continuing search")
             continue
 
+    if best_waveforms is None:
+        raise Exception("No acceptable windows found")
+    
     for k, waveform_type in enumerate(WAVEFORM_COLUMNS):
         waveform = best_waveforms[k]
+#         print(f"[{datetime.now().isoformat()}] [{csn}] Best waveform had shape {waveform.shape}")
 
         if len(waveform) > int(waveform_len_sec * TARGET_FREQ[waveform_type]):
             waveform = waveform[int(waveform_len_sec * TARGET_FREQ[waveform_type]) - len(waveform):]
@@ -196,7 +219,7 @@ def process_patient(input_args):
     i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, align_col = input_args
 
     filename = f"{input_folder}/{csn}/{csn}.h5"
-    print(f"[{i}/{df.shape[0]}] Working on patient {csn} at {filename}")
+    print(f"[{datetime.now().isoformat()}] [{i}/{df.shape[0]}] Working on patient {csn} at {filename}")
     try:
 
         output = {
@@ -229,7 +252,7 @@ def process_patient(input_args):
 
             waveform_start = row["waveform_start_time"].item()
             waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S%z')
-            if align_col is not None:
+            if align_col is not None and not pd.isna(row[align_col].item()):
                 max_alignment_time = row[align_col].item()
                 max_alignment_time = dt_parser.parse(max_alignment_time).replace(tzinfo=waveform_start.tzinfo)
             else:
@@ -263,7 +286,7 @@ def process_patient(input_args):
             alignment_time_epoch = int(alignment_time.timestamp())
             end_time_epoch = int(end_time.timestamp())
 
-
+            print(f"[{datetime.now().isoformat()}] [{csn}] Getting best waveforms...")
 
             if VERBOSE:
                 print(f"start_time = {start_time}")
@@ -271,17 +294,23 @@ def process_patient(input_args):
                 print(f"alignment_time = {alignment_time}")
                 print(f"end_time = {end_time}")
 
-            type_to_waveform_obj = get_best_waveforms(f, waveform_start, recommended_trim_start_sec, alignment_time, waveform_length_sec)
+            try:
+                type_to_waveform_obj = get_best_waveforms(f, waveform_start, recommended_trim_start_sec, alignment_time, waveform_length_sec, csn=csn)
+            except Exception as ec:
+                raise Exception(f"Patient did not have any useable waveforms. Technical: {ec}")
 
-            numerics_map_before = get_numerics(f["numerics"], start_time_epoch, alignment_time_epoch,
-                                               pre_numerics_len_sec=pre_minutes_min * 60)
+#             print(f"[{datetime.now().isoformat()}] [{csn}] Got best waveforms")
+
+            numerics_map_before = get_numerics_averaged_by_minute(f["numerics"], start_time_epoch, alignment_time_epoch, pre_minutes_min)
             for col in NUMERIC_COLUMNS:
                 output["numerics_before"][col]["vals"].append(numerics_map_before[col])
                 output["numerics_before"][col]["times"].append(numerics_map_before[f"{col}-time"])
                 output["numerics_before"][col]["lengths"].append(numerics_map_before[f"{col}-length"])
 
+#             print(f"[{datetime.now().isoformat()}] [{csn}] Got before numerics")
             numerics_map_after = get_numerics_averaged_by_minute(f["numerics"], alignment_time_epoch, end_time_epoch,
                                                                  post_minutes_min)
+#             print(f"[{datetime.now().isoformat()}] [{csn}] Got after numerics")
             for col in NUMERIC_COLUMNS:
                 output["numerics_after"][col]["vals"].append(numerics_map_after[col])
                 output["numerics_after"][col]["times"].append(numerics_map_after[f"{col}-time"])
@@ -293,15 +322,16 @@ def process_patient(input_args):
                 output["waveforms"][waveform_type]["waveforms"].append(type_to_waveform_obj[waveform_type]["waveform"])
                 output["waveforms"][waveform_type]["qualities"].append(type_to_waveform_obj[waveform_type]["quality"])
 
-        output_str = f"[{i}/{df.shape[0]}]   [{csn}] "
+        output_str = f"[{datetime.now().isoformat()}] [{i}/{df.shape[0]}]   [{csn}] "
         for k in WAVEFORM_COLUMNS:
             output_str += f"[{k}]: {type_to_waveform_obj[k]['quality']} valid | "
         print(output_str)
         return output
     except Exception as e:
-        print(f"[ERROR] for patient {csn} due to {e}")
+        print(f"[{datetime.now().isoformat()}] [ERROR] for patient {csn} due to {e}")
+#         print(traceback.format_exc())
         return None
-        # raise e
+#         raise e
 
 
 def run(input_folder, input_file, output_data_file, output_summary_file,

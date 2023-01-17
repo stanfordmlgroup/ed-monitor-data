@@ -22,26 +22,31 @@ def run(args):
     print(f"START TIME: {datetime.datetime.now()}")
     input_folder = args.input_folder
 
+    cols = ["HR", "RR", "SpO2", "NBPs", "NBPd", "btbRRInt_ms", "Perf"]
     rows = []
-    for root, dirs, files in tqdm(os.walk(input_folder)):
-        for name in files:
-            if name.endswith(".pkl"):
-                try:
-                    with open(os.path.join(root, name), 'rb') as handle:
-                        b = pickle.load(handle)
-                        hr_len = len(b["HR"])
-                        rr_len = len(b["RR"])
-                        spo2_len = len(b["SpO2"])
-                        nbps_len = len(b["NBPs"])
-                        nbpd_len = len(b["NBPd"])
-                        btb_len = len(b["btbRRInt_ms"])
-                        rows.append([name.replace(".pkl", ""), str(hr_len), str(rr_len), str(spo2_len), str(nbps_len), str(nbpd_len), str(btb_len)])
-                except:
-                    print(f"Could not load file {name}")
+    for item in tqdm(os.listdir(input_folder)):
+        if not os.path.isfile(os.path.join(input_folder, item)):
+            for csn in os.listdir(f"{input_folder}/{item}"):
+                row = [csn]
+
+                for fn_fn in cols:
+                    num_rows = 0
+                    try:
+                        with open(f"{input_folder}/{item}/{csn}/{fn_fn}.csv", 'r') as handle:
+                            for line in handle:
+                                num_rows += 1
+                        num_rows = num_rows - 1 # minus one to account for header
+                        row.append(str(num_rows))
+                    except:
+                        row.append("0")
+                rows.append(row)
 
     with open(f"{input_folder}/summary.csv", "w") as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
-        writer.writerow(["csn", "HR_len", "RR_len", "SpO2_len", "NBPs_len", "NBPd_len", "btb_len"])
+        header = ["csn"]
+        for col in cols:
+            header.append(f"{col}_len")
+        writer.writerow(header)
         for line in rows:
             writer.writerow(line)
 
