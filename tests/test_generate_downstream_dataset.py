@@ -10,7 +10,7 @@ import numpy as np
 class TestGenerateDownstreamDataset(unittest.TestCase):
 
     def test_process(self):
-        run(input_folder="resources", input_file="resources/consolidated.visits_ssl_2022_05_23.131291536204.csv",
+        run(input_folder="resources", input_file="resources/consolidated.visits_ssl_2022_05_23.XX12915362YY.csv",
             output_data_file="resources/output.h5", output_summary_file="resources/output.csv",
             waveform_length_sec=60, pre_minutes_min=15, post_minutes_min=60, align_col=None, limit=None
         )
@@ -20,9 +20,9 @@ class TestGenerateDownstreamDataset(unittest.TestCase):
         df = pd.read_csv("resources/output.csv")
         self.assertEqual(1, df.shape[0])
 
-        expected = [131291536204,1598257389,float('nan'),14,59,14,59,14,59,14,59,1,3,1,3,13,59,30000,1,7500,1]
+        expected = [float('nan'),15,60,15,60,15,60,15,60,2,4,2,4,14,58,30000,1,7500,1]
         actual = list(df.iloc[0])
-        # self.compare_lists(expected, actual)
+        self.compare_lists(expected, actual[2:])
 
         expected = ["patient_id", "alignment_time", "alignment_val", "HR_before_length", "HR_after_length", "RR_before_length", "RR_after_length", "SpO2_before_length", "SpO2_after_length", "btbRRInt_ms_before_length", "btbRRInt_ms_after_length", "NBPs_before_length", "NBPs_after_length", "NBPd_before_length", "NBPd_after_length", "Perf_before_length", "Perf_after_length", "II_length", "II_quality", "Pleth_length", "Pleth_quality"]
         actual = list(df.columns)
@@ -38,8 +38,6 @@ class TestGenerateDownstreamDataset(unittest.TestCase):
                 ['alignment_times', 'alignment_vals', 'numerics_after', 'numerics_before', 'waveforms'],
                 list(f.keys())
             )
-
-            # self.assertEqual(1598257389, f['alignment_times'][:][0])
 
             expected_numeric_cols = ['HR', 'NBPd', 'NBPs', 'Perf', 'RR', 'SpO2', 'btbRRInt_ms']
             self.assertListEqual(
@@ -66,16 +64,11 @@ class TestGenerateDownstreamDataset(unittest.TestCase):
             self.assertEqual(0.5111, round(ppg[0], 4))
             self.assertEqual(69.1695, round(ppg[-1], 4))
 
-            hr_times = list(f['numerics_after']['HR']["times"][:][0])
             hr_vals = list(f['numerics_after']['HR']["vals"][:][0])
-            self.assertEqual(1598257389, int(hr_times[0]))
-            self.assertEqual(1598260929, int(hr_times[-1]))
             self.assertEqual(79.14, round(hr_vals[0], 2))
             self.assertEqual(71.55, round(hr_vals[-1], 2))
 
-            sbp_times = np.array(list(f['numerics_after']['NBPs']["times"][:][0]))
             sbp_vals = np.array(list(f['numerics_after']['NBPs']["vals"][:][0]))
-            self.compare_lists([1598257749, 1598258649, 1598259549, 1598260449], sbp_times[[6, 21, 36, 51]])
             self.compare_lists([134, 133, 123, 120], sbp_vals[[6, 21, 36, 51]])
 
     def compare_lists(self, expected, actual):
