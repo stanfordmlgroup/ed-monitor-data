@@ -109,6 +109,8 @@ def get_numerics_averaged_by_minute(numerics_obj, start_epoch, end_epoch):
 def get_trend(vals_of_interest):
     try:
         vals_of_interest_no_nan = vals_of_interest[~np.isnan(vals_of_interest)]
+        if len(vals_of_interest_no_nan) < 2:
+            return np.nan
         x = np.arange(0, len(vals_of_interest_no_nan))
         y = np.array(vals_of_interest_no_nan)
         z = np.polyfit(x, y, 1)
