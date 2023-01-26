@@ -38,14 +38,6 @@ NUMERIC_COLUMNS = ['HR', 'RR', 'SpO2', 'btbRRInt_ms', 'NBPs', 'NBPd', 'Perf']
 VERBOSE = False
 
 
-def get_waveform_offsets(start_time, current_time, freq):
-    """
-    Returns the offset in the waveform for the query time
-    """
-    start = ((current_time - start_time).total_seconds()) * freq
-    return max(int(start), 0)
-
-
 def get_numerics_averaged_by_minute(numerics_obj, start_epoch, end_epoch):
     start = start_epoch
     end = end_epoch
@@ -65,6 +57,11 @@ def get_numerics_averaged_by_minute(numerics_obj, start_epoch, end_epoch):
                 print(f"start = {datetime.fromtimestamp(start).isoformat('T')}")
                 print(f"end = {datetime.fromtimestamp(end).isoformat('T')}")
                 print(f"len(indices_of_interest) = {len(indices_of_interest)}")
+
+            if len(indices_of_interest) == 0 and len(vals) > 0:
+                # Let's carry forward the last value since there were no numerics that fell in our range
+                output[col].append(vals[-1])
+                output_var[col].append(0)
 
             temp_min = 0
             temp_list = []
