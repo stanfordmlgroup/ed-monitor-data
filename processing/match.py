@@ -151,13 +151,13 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file,
         # merge the studies together.
         #
         # PATIENT:         ******
-        # STUDY1 :     ------
+        # STUDY1 :             ------
         # STUDY2 :           --
-        # STUDY3 :             ----
-        # STUDY4 :        -----------
+        # STUDY3 :       ----
         found = False
         rows_found = []
-        for start_end_time in start_end_times:
+        # Sort by the start time
+        for start_end_time in sorted(start_end_times, key=lambda x: x[0]):
             if roomed_time <= start_end_time[1] and dispo_time >= start_end_time[0] and bed == start_end_time[2]:
                 export_row = start_time_to_export_row[start_end_time[0]][start_end_time[2]]
                 export_df_ids.append(str(export_row["final_export_df_id"]))

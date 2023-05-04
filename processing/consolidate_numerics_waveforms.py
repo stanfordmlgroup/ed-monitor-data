@@ -125,7 +125,7 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
         output_vals[f"{col}-time"] = []
     
     # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > starting process_numerics_file")
-    for study in sorted(studies):
+    for study in studies:
         for df in load_numerics_file(study_to_study_folder, study):
             if df is None:
                 # There are no numerics for some reason
