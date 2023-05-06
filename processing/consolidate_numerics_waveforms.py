@@ -127,6 +127,7 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
         output_vals[f"{col}-time"] = []
     
     # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > starting process_numerics_file")
+    prev_time = None
     for study in studies:
         for df in load_numerics_file(study_to_study_folder, study):
             if df is None:
@@ -144,6 +145,10 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
                 if row_time < start or row_time > end:
                     # Row is out of our study range
                     continue
+                if prev_time is not None and row_time < prev_time:
+                    # Row is before the previously processed numeric value
+                    print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}] [WARN]     > overlapping numerics detected")
+                    continue
 
                 for col in COLUMNS:
                     if col in row:
@@ -153,6 +158,7 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
                         elif isinstance(row[col], float) and not math.isnan(row[col]):
                             output_vals[col].append(row[col])
                             output_vals[f"{col}-time"].append(row_time.timestamp())
+                        prev_time = row_time
             # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > done parsing individual file")
     
     is_non_empty = False
@@ -247,6 +253,38 @@ def read_info(info_file_name):
     return info_map
 
 
+def make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform):
+    waveform_start_time = waveform_type_to_times["II"]["start"]
+    waveform_end_time = waveform_type_to_times["II"]["end"]
+    for w, metadata_list in waveform_to_metadata.items():
+        if w != "II":
+            # No overlap with II waveform at all
+            if waveform_type_to_times[w]["start"] > waveform_end_time:
+                waveform_type_to_waveform[w] = np.zeros(int((waveform_end_time - waveform_start_time).total_seconds()) * WAVEFORM_SAMPLE_RATES[w])
+                continue
+            if waveform_type_to_times[w]["end"] < waveform_start_time:
+                waveform_type_to_waveform[w] = np.zeros(int((waveform_end_time - waveform_start_time).total_seconds()) * WAVEFORM_SAMPLE_RATES[w])
+                continue
+
+            # Partial overlap with II waveform
+            diff = (waveform_type_to_times[w]["start"] - waveform_start_time).total_seconds()
+            if diff > 0:
+                # The non-II begins ahead of the II waveform so we must pad the non-II waveform
+                waveform_type_to_waveform[w] = np.concatenate((np.zeros(int(diff * WAVEFORM_SAMPLE_RATES[w])), waveform_type_to_waveform[w]))
+            elif diff < 0:
+                # The non-II begins before the II waveform so we must trim the non-II waveform
+                waveform_type_to_waveform[w] = waveform_type_to_waveform[w][int(abs(diff) * WAVEFORM_SAMPLE_RATES[w]):]
+
+            diff = (waveform_type_to_times[w]["end"] - waveform_end_time).total_seconds()
+            if diff > 0:
+                # The non-II ends ahead of the II waveform so we must trim the non-II waveform
+                waveform_type_to_waveform[w] = waveform_type_to_waveform[w][:-int(abs(diff) * WAVEFORM_SAMPLE_RATES[w])]
+            elif diff < 0:
+                # The non-II ends before the II waveform so we must pad the non-II waveform
+                waveform_type_to_waveform[w] = np.concatenate((waveform_type_to_waveform[w],
+                    (np.zeros(int(abs(diff) * WAVEFORM_SAMPLE_RATES[w])))))
+
+
 def get_skip_waveform_seconds(patient_id, waveform, wave_type, sample_rate):
     """
     Trims the waveforms to the point where there is actual data.
@@ -310,10 +348,14 @@ def join_waveforms(patient_id, file_metadata_list, w):
         waveform = waveform * gain
 
         if prev_time is not None:
-            # Sometimes there is a gap between consecutive waveforms
             diff = (metadata["start_offset_time"] - prev_time).total_seconds()
-            assert diff >= 0, "start offset was before previous time!"
-            final_waveform = np.concatenate((final_waveform, np.zeros(int(diff * sample_rate))))
+            if diff > 0:
+                # Sometimes there is a gap between consecutive waveforms
+                final_waveform = np.concatenate((final_waveform, np.zeros(int(diff * sample_rate))))
+            elif diff < 0:
+                # Rarely the waveforms will overlap so we can trim the previous waveform
+                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] start offset was before previous time!")
+                final_waveform = final_waveform[:int(diff * sample_rate)]
         prev_time = metadata["end_offset_time"]
         final_waveform = np.concatenate((final_waveform, waveform))
 
@@ -528,6 +570,9 @@ def process_study(input_args):
                 "end": waveform_end_time
             }
 
+        # Make waveform lengths consistent between waveforms
+        make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
+
         trim_start_sec, trim_end_sec = get_skip_waveform_seconds(patient_id, waveform_type_to_waveform["II"], "II",
                                                                  WAVEFORM_SAMPLE_RATES["II"])
         if DEBUG:
@@ -567,12 +612,7 @@ def process_study(input_args):
 
             wave_length = len(waveform) / WAVEFORM_SAMPLE_RATES[w]
             # Rounding to 1 decimal place to account for how Resp is sampled at 62.5
-            if data_length_sec != round(wave_length, 1):
-                # Sometimes we have observed that the waveforms available change after rollover to the next day
-                # so it is possible for inconsistent lengths to occur.
-                #
-                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > [WARN] Inconsistent lengths detected")
-
+            assert data_length_sec == round(wave_length, 1), "Inconsistent lengths detected"
 
         # Extract numerics data
         #
