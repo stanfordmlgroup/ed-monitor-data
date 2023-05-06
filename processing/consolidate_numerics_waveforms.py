@@ -296,6 +296,8 @@ def join_waveforms(patient_id, file_metadata_list, w):
     final_waveform = np.array([])
     waveform_start_time = None
     waveform_end_time = None
+    prev_time = None
+    sample_rate = WAVEFORM_SAMPLE_RATES[w]
     for i, metadata in enumerate(file_metadata_list):
         # Note we can iterate in order of the metadata because files were scanned in chronological
         # order based on their file prefixes.
@@ -304,12 +306,36 @@ def join_waveforms(patient_id, file_metadata_list, w):
         waveform = np.fromfile(metadata["filename"], dtype=np.int16)
         waveform = waveform[int(metadata["start_offset"]):int(metadata["end_offset"])]
         waveform = waveform * gain
+
+        if prev_time is not None:
+            # Sometimes there is a gap between consecutive waveforms
+            diff = (metadata["start_offset_time"] - prev_time).total_seconds()
+            assert diff >= 0, "start offset was before previous time!"
+            final_waveform = np.concatenate((final_waveform, np.zeros(int(diff * sample_rate))))
+        prev_time = metadata["end_offset_time"]
         final_waveform = np.concatenate((final_waveform, waveform))
 
         if i == 0:
             waveform_start_time = metadata["start_offset_time"]
         if i == len(file_metadata_list) - 1:
             waveform_end_time = metadata["end_offset_time"]
+
+    if prev_time is not None:
+        # Sometimes there is a gap between consecutive waveforms
+        diff = (waveform_end_time - prev_time).total_seconds()
+        assert diff >= 0, "start offset was before previous time!"
+        final_waveform = np.concatenate((final_waveform, np.zeros(int(diff * sample_rate))))
+
+    # Pad the rest of the array due to rounding errors
+    target_len_sec = (waveform_end_time - waveform_start_time).total_seconds()
+    if len(final_waveform) / sample_rate != target_len_sec:
+        # It should not be off by more than one sec
+        assert abs(len(final_waveform) / sample_rate - target_len_sec) < 1, "target vs actual off by more than one sec"
+        target_diff = int((target_len_sec * sample_rate) - len(final_waveform))
+        if target_diff < 0:
+            final_waveform = final_waveform[:target_diff]
+        else:
+            final_waveform = np.concatenate((final_waveform, np.zeros(target_diff)))
 
     return final_waveform, waveform_start_time, waveform_end_time
 
@@ -327,16 +353,43 @@ def parse_vital(vital, index_to_return=0):
         return float('nan')
 
 def process_study(input_args):
-    curr_patient_index, total_patients, patient_id, studies, patient_to_actual_times, patient_to_row, study_to_info, study_to_study_folder, output_dir = input_args
+    curr_patient_index, total_patients, patient_id, unsorted_studies, patient_to_actual_times, patient_to_row, study_to_info, study_to_study_folder, output_dir = input_args
     min_start = None
     max_end = None
     
     try:
-
         print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Starting patient processing {curr_patient_index}/{total_patients}...")
 
         roomed_time = patient_to_actual_times[patient_id]["roomed_time"]
         dispo_time = patient_to_actual_times[patient_id]["dispo_time"]
+
+        # Determine the order to parse the studies in (it should be ordered by the clock time)
+        #
+        study_to_start = []
+        study_path_to_times = {}
+        for study in unsorted_studies:
+            info = study_to_info[study]
+            study_path = info["study_folder"]
+            if not os.path.isdir(study_path):
+                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Patient {patient_id} skipped because study path not found {study_path}")
+                break
+
+            local_starts = []
+            for f in os.listdir(study_path):
+                actual_type = f.split(".")[-2]  # e.g. II
+                if actual_type == "clock":
+                    start = get_time_from_clock_file(os.path.join(study_path, f), return_type=START)
+                    end = get_time_from_clock_file(os.path.join(study_path, f), return_type=END)
+                    study_path_to_times[study_path] = {
+                        "start": start,
+                        "end": end
+                    }
+                    local_starts.append(start)
+            if len(local_starts) > 0:
+                study_to_start.append((study, min(local_starts)))
+
+        study_to_start.sort(key=lambda x: x[1])
+        studies = [x[0] for x in study_to_start]
 
         # Extract waveforms
         #
@@ -540,7 +593,7 @@ def process_study(input_args):
     #         "supported_types": list(waveform_type_to_waveform.keys())
     #     }
 
-        patient_output_path = os.path.join(output_dir, str(patient_id))
+        patient_output_path = os.path.join(output_dir, str(patient_id[-2:]))
         Path(patient_output_path).mkdir(parents=True, exist_ok=True)
         output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
         with h5py.File(output_save_path, "w") as f:
