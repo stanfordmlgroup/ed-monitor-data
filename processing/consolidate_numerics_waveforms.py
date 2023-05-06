@@ -38,6 +38,8 @@ import pickle
 from biosppy.signals.tools import filter_signal
 from pathlib import Path
 from concurrent import futures
+import traceback
+import sys
 
 pd.set_option('display.max_columns', 500)
 
@@ -320,12 +322,6 @@ def join_waveforms(patient_id, file_metadata_list, w):
         if i == len(file_metadata_list) - 1:
             waveform_end_time = metadata["end_offset_time"]
 
-    if prev_time is not None:
-        # Sometimes there is a gap between consecutive waveforms
-        diff = (waveform_end_time - prev_time).total_seconds()
-        assert diff >= 0, "start offset was before previous time!"
-        final_waveform = np.concatenate((final_waveform, np.zeros(int(diff * sample_rate))))
-
     # Pad the rest of the array due to rounding errors
     target_len_sec = (waveform_end_time - waveform_start_time).total_seconds()
     if len(final_waveform) / sample_rate != target_len_sec:
@@ -363,6 +359,9 @@ def process_study(input_args):
         roomed_time = patient_to_actual_times[patient_id]["roomed_time"]
         dispo_time = patient_to_actual_times[patient_id]["dispo_time"]
 
+        # Remove any duplicate studies
+        unsorted_studies = list(set(unsorted_studies))
+        
         # Determine the order to parse the studies in (it should be ordered by the clock time)
         #
         study_to_start = []
@@ -593,7 +592,7 @@ def process_study(input_args):
     #         "supported_types": list(waveform_type_to_waveform.keys())
     #     }
 
-        patient_output_path = os.path.join(output_dir, str(patient_id[-2:]))
+        patient_output_path = os.path.join(output_dir, str(patient_id)[-2:])
         Path(patient_output_path).mkdir(parents=True, exist_ok=True)
         output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
         with h5py.File(output_save_path, "w") as f:
@@ -631,7 +630,8 @@ def process_study(input_args):
         obj["row"] = patient_to_row[patient_id]
         return obj
     except Exception as e:
-        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Could not process patient due to error: {e}")
+        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] [ERROR] Could not process patient due to error: {e}")
+        print(traceback.format_exc())
         return None
 
 
