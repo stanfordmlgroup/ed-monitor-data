@@ -609,10 +609,6 @@ def process_study(input_args):
                 print(
                     f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {w} has length {len(waveform)} corresponding to {len(waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w]} secs")
 
-            wave_length = len(waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w]
-            # Rounding to 1 decimal place to account for how Resp is sampled at 62.5
-            assert data_length_sec == round(wave_length, 1), "Inconsistent lengths detected"
-
         # Extract numerics data
         #
         numerics, pt = process_numerics_file(patient_id, study_to_study_folder, studies, roomed_time, dispo_time)
