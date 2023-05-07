@@ -186,13 +186,15 @@ def get_time_from_clock_file(clock_path, return_type=START):
     """
     with open(clock_path, "r") as f:
         lines = f.read().splitlines()
+        if len(lines) < 1:
+            return None
         if return_type == START:
             row = lines[0]
             row_arr = re.split(" +", row)
             date_str = " ".join(row_arr[1:4])
             # 09/12/2020 20:51:38.088 -07:00
             date_obj = datetime.datetime.strptime(date_str, '%m/%d/%Y %H:%M:%S.%f %z')
-            date_obj = date_obj.replace(microsecond=0)
+            # date_obj = date_obj.replace(microsecond=0)
             return date_obj
         elif return_type == END:
             row = lines[-1]
@@ -200,7 +202,7 @@ def get_time_from_clock_file(clock_path, return_type=START):
             date_str = " ".join(row_arr[1:4])
             # 09/12/2020 20:51:38.088 -07:00
             date_obj = datetime.datetime.strptime(date_str, '%m/%d/%Y %H:%M:%S.%f %z')
-            date_obj = date_obj.replace(microsecond=0)
+            # date_obj = date_obj.replace(microsecond=0)
             return date_obj
         else:
             raise NotImplementedError("Unknown return_type specified")
@@ -376,7 +378,15 @@ def join_waveforms(patient_id, file_metadata_list, w):
     target_len_sec = (waveform_end_time - waveform_start_time).total_seconds()
     if len(final_waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w] != target_len_sec:
         # It should not be off by more than one sec
-        assert abs(len(final_waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w] - target_len_sec) < 1, "target vs actual off by more than one sec"
+        off_sec = abs(len(final_waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w] - target_len_sec)
+        if off_sec >= 0:
+            # Resp waveforms are especially vulnerable to differences due to its non-integer sampling rate
+            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Target vs actual for {w} off by {off_sec} sec")
+
+        if off_sec >= 1:
+            # Resp waveforms are especially vulnerable to differences due to its non-integer sampling rate
+            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] [WARN]    > Target vs actual for {w} off by a large amount")
+
         target_diff = int((target_len_sec * TARGET_WAVEFORM_SAMPLE_RATES[w]) - len(final_waveform))
         if target_diff < 0:
             final_waveform = final_waveform[:target_diff]
@@ -423,17 +433,24 @@ def process_study(input_args):
                 print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Patient {patient_id} skipped because study path not found {study_path}")
                 break
 
+            skip_study = False
             local_starts = []
             for f in os.listdir(study_path):
                 actual_type = f.split(".")[-2]  # e.g. II
                 if actual_type == "clock":
                     start = get_time_from_clock_file(os.path.join(study_path, f), return_type=START)
                     end = get_time_from_clock_file(os.path.join(study_path, f), return_type=END)
+                    if start is None or end is None:
+                        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Study {study} skipped because clock was missing")
+                        skip_study = True
+                        break
                     study_path_to_times[study_path] = {
                         "start": start,
                         "end": end
                     }
                     local_starts.append(start)
+            if skip_study:
+                continue
             if len(local_starts) > 0:
                 study_to_start.append((study, min(local_starts)))
 
@@ -602,18 +619,6 @@ def process_study(input_args):
 
         # Save output files
         #
-    #     output_obj = {
-    #         "data_length_sec": data_length_sec,
-    #         "min_start": min_start,
-    #         "max_end": max_end,
-    #         "roomed_time": roomed_time,
-    #         "dispo_time": dispo_time,
-    #         "trim_start_sec": trim_start_sec,
-    #         "trim_end_sec": trim_end_sec,
-    #         "waveform_type_to_times": waveform_type_to_times,
-    #         "supported_types": list(waveform_type_to_waveform.keys())
-    #     }
-
         patient_output_path = os.path.join(output_dir, str(patient_id)[-2:])
         Path(patient_output_path).mkdir(parents=True, exist_ok=True)
         output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
