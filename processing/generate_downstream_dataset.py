@@ -298,13 +298,12 @@ def process_patient(input_args):
                 output["numerics_before"][col]["times"].append(numerics_map_before[f"{col}-time"])
                 output["numerics_before"][col]["lengths"].append(numerics_map_before[f"{col}-length"])
 
-#             print(f"[{datetime.now().isoformat()}] [{csn}] Got before numerics")
-            numerics_map_after = get_numerics_averaged_by_second(f["numerics"], alignment_time_epoch, end_time_epoch, post_granularity_sec)
-#             print(f"[{datetime.now().isoformat()}] [{csn}] Got after numerics")
-            for col in NUMERIC_COLUMNS:
-                output["numerics_after"][col]["vals"].append(numerics_map_after[col])
-                output["numerics_after"][col]["times"].append(numerics_map_after[f"{col}-time"])
-                output["numerics_after"][col]["lengths"].append(numerics_map_after[f"{col}-length"])
+            if post_minutes_min > 0:
+                numerics_map_after = get_numerics_averaged_by_second(f["numerics"], alignment_time_epoch, end_time_epoch, post_granularity_sec)
+                for col in NUMERIC_COLUMNS:
+                    output["numerics_after"][col]["vals"].append(numerics_map_after[col])
+                    output["numerics_after"][col]["times"].append(numerics_map_after[f"{col}-time"])
+                    output["numerics_after"][col]["lengths"].append(numerics_map_after[f"{col}-length"])
 
             output["alignment_times"].append(alignment_time_epoch)
 
@@ -415,7 +414,10 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             row = [csns[i], alignment_times[i]]
             for k in NUMERIC_COLUMNS:
                 row.append(numerics_before[k]["lengths"][i])
-                row.append(numerics_after[k]["lengths"][i])
+                if post_minutes_min > 0:
+                    row.append(numerics_after[k]["lengths"][i])
+                else:
+                    row.append("")
             for k in WAVEFORM_COLUMNS:
                 row.append(len(waveforms[k]["waveforms"][i]))
                 row.append(waveforms[k]["qualities"][i])
