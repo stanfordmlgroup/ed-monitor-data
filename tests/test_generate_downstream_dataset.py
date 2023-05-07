@@ -12,7 +12,8 @@ class TestGenerateDownstreamDataset(unittest.TestCase):
     def test_process(self):
         run(input_folder="resources", input_file="resources/consolidated.visits_ssl_2022_05_23.XX12915362YY.csv",
             output_data_file="resources/output.h5", output_summary_file="resources/output.csv",
-            waveform_length_sec=60, pre_minutes_min=15, post_minutes_min=60, align_col=None, limit=None
+            waveform_length_sec=60, pre_minutes_min=15, post_minutes_min=60,
+            pre_granularity_sec=60, post_granularity_sec=60, align_col=None, limit=None
         )
 
         # Validate output CSV file
@@ -20,11 +21,11 @@ class TestGenerateDownstreamDataset(unittest.TestCase):
         df = pd.read_csv("resources/output.csv")
         self.assertEqual(1, df.shape[0])
 
-        expected = [float('nan'),15,60,15,60,15,60,15,60,2,4,2,4,14,58,30000,1,7500,1]
+        expected = [15,60,15,60,15,60,15,60,2,4,2,4,14,58,30000,1,7500,1]
         actual = list(df.iloc[0])
         self.compare_lists(expected, actual[2:])
 
-        expected = ["patient_id", "alignment_time", "alignment_val", "HR_before_length", "HR_after_length", "RR_before_length", "RR_after_length", "SpO2_before_length", "SpO2_after_length", "btbRRInt_ms_before_length", "btbRRInt_ms_after_length", "NBPs_before_length", "NBPs_after_length", "NBPd_before_length", "NBPd_after_length", "Perf_before_length", "Perf_after_length", "II_length", "II_quality", "Pleth_length", "Pleth_quality"]
+        expected = ["patient_id", "alignment_time", "HR_before_length", "HR_after_length", "RR_before_length", "RR_after_length", "SpO2_before_length", "SpO2_after_length", "btbRRInt_ms_before_length", "btbRRInt_ms_after_length", "NBPs_before_length", "NBPs_after_length", "NBPd_before_length", "NBPd_after_length", "Perf_before_length", "Perf_after_length", "II_length", "II_quality", "Pleth_length", "Pleth_quality"]
         actual = list(df.columns)
         self.compare_lists(expected, actual)
 
@@ -35,7 +36,7 @@ class TestGenerateDownstreamDataset(unittest.TestCase):
             print(f['numerics_after'].keys())
             print("---")
             self.assertListEqual(
-                ['alignment_times', 'alignment_vals', 'numerics_after', 'numerics_before', 'waveforms'],
+                ['alignment_times', 'numerics_after', 'numerics_before', 'waveforms'],
                 list(f.keys())
             )
 
@@ -49,6 +50,11 @@ class TestGenerateDownstreamDataset(unittest.TestCase):
                 list(f['numerics_after'].keys())
             )
             for numeric in expected_numeric_cols:
+                sbp_times = list(f['numerics_before'][numeric]["times"][:][0])
+                sbp_vals = list(f['numerics_before'][numeric]["vals"][:][0])
+                self.assertEqual(15, len(sbp_times))
+                self.assertEqual(15, len(sbp_vals))
+
                 sbp_times = list(f['numerics_after'][numeric]["times"][:][0])
                 sbp_vals = list(f['numerics_after'][numeric]["vals"][:][0])
                 self.assertEqual(60, len(sbp_times))

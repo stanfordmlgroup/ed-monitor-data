@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 """
-Script to generate matched waveform, numerics data 15 min after waveforms start to be recorded.
-Also include the next 60 min of numerics data.
+Script to generate matched waveform, numerics data X min after waveforms start to be recorded.
+Also include the next X min of numerics data.
 
 Usage:
 ```
@@ -50,88 +50,64 @@ def get_waveform_offsets(start_time, current_time, freq):
     return max(int(start), 0)
 
 
-def get_numerics(numerics_obj, start_epoch, end_epoch, pre_numerics_len_sec):
-    start = start_epoch
-    end = end_epoch
+def get_numerics_averaged_by_second(numerics_obj, start_epoch, end_epoch, average_window_sec=60):
+    start = int(start_epoch)
+    end = int(end_epoch)
+    range_len = end - start
     output = {}
     for col in NUMERIC_COLUMNS:
-        output[col] = np.zeros(
-            pre_numerics_len_sec)  # Roughly reserve space for 1 data point per sec (required to obtain a square matrix)
+        if col not in numerics_obj:
+            continue
+        second_to_vals = {}
+        vals = np.array(numerics_obj[col])
+        times = np.array(numerics_obj[f"{col}-time"])
+        assert len(times) == len(vals)
+
+        indices_of_interest = np.squeeze(np.argwhere(np.logical_and(times >= start, times <= end)))
+        vals = vals[indices_of_interest]
+        times = times[indices_of_interest]
+
+        assert all(times[i] <= times[i+1] for i in range(len(times) - 1)), "Times are not sorted!"
+
+        for idx, t in enumerate(times):
+            # e.g. 
+            # start = 1634840005
+            # t     = 1634840068
+            # average_window_sec = 60
+            
+            # offset = 63
+            offset = int(t) - start
+
+            # Determine the bucket - e.g. if we are grouping every 60 seconds,
+            # we want to have buckets that begin on the 60 second marks
+            # e.g. offset = 63 - 63 % 60 = 63 - 3 = 60
+            # We would have buckets from 0, 60, 120, ...
+            offset = offset - offset % average_window_sec
+            if offset not in second_to_vals:
+                second_to_vals[offset] = []
+            second_to_vals[offset].append(vals[idx])
+
+        output[col] = np.zeros(int((end - start) / average_window_sec))
         output[col][:] = np.NaN
-        output[f"{col}-time"] = np.zeros(pre_numerics_len_sec)
-        output[f"{col}-length"] = 0
-        if col in numerics_obj:
-            vals = np.array(numerics_obj[col])
-            times = np.array(numerics_obj[f"{col}-time"])
-            indices_of_interest = np.argwhere(np.logical_and(times >= start, times <= end))
-            # Take only the values closest to the alignment point
-            indices_of_interest = indices_of_interest[-pre_numerics_len_sec:]
-            offset = max(0, pre_numerics_len_sec - len(indices_of_interest))
-            output[col][offset:] = np.squeeze(vals[indices_of_interest])
-            output[f"{col}-time"][offset:] = np.squeeze(times[indices_of_interest]).astype(int)
-            output[f"{col}-length"] = len(indices_of_interest)
-    return output
+        output[f"{col}-time"] = np.zeros(int((end - start) / average_window_sec))
 
-
-def get_numerics_averaged_by_minute(numerics_obj, start_epoch, end_epoch, post_numerics_min):
-    start = start_epoch
-    end = end_epoch
-    output = {}
-    for col in NUMERIC_COLUMNS:
-        output[col] = np.zeros(post_numerics_min)
-        output[col][:] = np.NaN
-        output[f"{col}-time"] = np.zeros(post_numerics_min)
-        output[f"{col}-length"] = 0
-
-        if col in numerics_obj:
-            vals = np.array(numerics_obj[col])
-            times = np.array(numerics_obj[f"{col}-time"])
-            indices_of_interest = np.argwhere(np.logical_and(times >= start, times <= end))
-            if VERBOSE:
-                print(f"len(vals) = {len(vals)}")
-                print(f"len(times) = {len(times)}")
-                print(f"start = {datetime.fromtimestamp(start).isoformat('T')}")
-                print(f"end = {datetime.fromtimestamp(end).isoformat('T')}")
-                print(f"len(indices_of_interest) = {len(indices_of_interest)}")
-
-            temp_min = 0
-            temp_list = []
-            valid_vals = 0
-
-            # Handle case where there are gaps in the recorded data at the start
-            if len(indices_of_interest) > 0:
-                while times[indices_of_interest[0]] >= (start + (temp_min + 1) * 60):
-                    output[f"{col}-time"][temp_min] = start + temp_min * 60
-                    output[col][temp_min] = np.nan
-                    temp_min += 1
-
-            for idx in indices_of_interest:
-                if temp_min >= post_numerics_min:
-                    break
-                if (start + temp_min * 60) <= times[idx] < (start + (temp_min + 1) * 60):
-                    temp_list.append(vals[idx])
-                else:
-                    output[f"{col}-time"][temp_min] = start + temp_min * 60
-                    if len(temp_list) == 0:
-                        output[col][temp_min] = np.nan
-                    else:
-                        output[col][temp_min] = np.mean(temp_list)
-                        valid_vals += 1
-                    temp_list = [vals[idx]]
-                    temp_min += 1
-
-                    # Handle case where there are gaps in the recorded data
-                    while times[idx] >= (start + (temp_min + 1) * 60):
-                        output[f"{col}-time"][temp_min] = start + temp_min * 60
-                        output[col][temp_min] = np.nan
-                        temp_min += 1
-
-            if len(temp_list) > 0 and temp_min < post_numerics_min:
-                output[col][temp_min] = np.mean(temp_list)
-                output[f"{col}-time"][temp_min] = start + temp_min * 60
+        last_val = np.NaN
+        valid_vals = 0
+        curr = 0
+        idx = 0
+        while curr < range_len:
+            actual_time = start + curr
+            if curr in second_to_vals and len(second_to_vals[curr]) > 0:
+                output[col][idx] = np.nanmean(second_to_vals[curr])
                 valid_vals += 1
-
-            output[f"{col}-length"] = valid_vals
+            elif not np.isnan(last_val):
+                # Attempt to carry-forward the last value
+                output[col][idx] = last_val
+            last_val = output[col][idx]
+            output[f"{col}-time"][idx] = actual_time
+            curr += average_window_sec
+            idx += 1
+        output[f"{col}-length"] = valid_vals
     return output
 
 
@@ -146,7 +122,6 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
 
     # Sanity check that the waveforms are all actually present and not just empty array (saves time)
     for waveform_type in WAVEFORM_COLUMNS:
-        waveform_config = WAVEFORMS_OF_INTERST[waveform_type]
         waveform_base = np.array(f["waveforms"][waveform_type])
         if len(waveform_base) == 0 or (waveform_base == waveform_base[0]).all():
             # The waveform is just empty so skip this patient
@@ -172,19 +147,20 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
                 continue
             try:
                 waveform, quality = get_waveform(waveform_base, start, seg_len,
-                                             waveform_config["orig_frequency"],
-                                             should_normalize=False,
-                                             bandpass_type=waveform_config["bandpass_type"],
-                                             bandwidth=waveform_config["bandpass_freq"],
-                                             target_fs=TARGET_FREQ[waveform_type],
-                                             waveform_type=waveform_type,
-                                             skewness_max=0.87,
-                                             msq_min=0.27)
+                                                 waveform_config["orig_frequency"],
+                                                 should_normalize=False,
+                                                 bandpass_type=waveform_config["bandpass_type"],
+                                                 bandwidth=waveform_config["bandpass_freq"],
+                                                 target_fs=TARGET_FREQ[waveform_type],
+                                                 waveform_type=waveform_type,
+                                                 skewness_max=0.87,
+                                                 msq_min=0.27)
             except Exception as et:
                 # Fail fast because this represents an error case - we assumed that the windows in this range 
                 # are all good so we should raise an error when we get into this exceptional case
                 print(f"[{datetime.now().isoformat()}] [{csn}] A window at start={start} could not be parsed due to {et}")
                 raise et
+
             local_waveforms.append(waveform)
             local_qualities.append(quality)
 
@@ -231,16 +207,15 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
 
 
 def process_patient(input_args):
-    i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, align_col = input_args
+    i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col = input_args
 
-    filename = f"{input_folder}/{csn}/{csn}.h5"
+    filename = f"{input_folder}/{str(csn)[-2:]}/{csn}.h5"
     print(f"[{datetime.now().isoformat()}] [{i}/{df.shape[0]}] Working on patient {csn} at {filename}")
     try:
 
         output = {
             "csn": csn,
             "alignment_times": [],
-            "alignment_vals": [],  # Deprecated, kept for compatibility
             "numerics_before": {},
             "numerics_after": {},
             "waveforms": {},
@@ -266,7 +241,10 @@ def process_patient(input_args):
             row = df[df["patient_id"] == csn]
 
             waveform_start = row["waveform_start_time"].item()
-            waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S%z')
+            try:
+                waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S%z')
+            except ValueError:
+                waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S.%f%z')
             if align_col is not None and not pd.isna(row[align_col].item()):
                 max_alignment_time = row[align_col].item()
                 max_alignment_time = dt_parser.parse(max_alignment_time).replace(tzinfo=waveform_start.tzinfo)
@@ -314,17 +292,14 @@ def process_patient(input_args):
             except Exception as ec:
                 raise Exception(f"Patient did not have any useable waveforms. Technical: {ec}")
 
-#             print(f"[{datetime.now().isoformat()}] [{csn}] Got best waveforms")
-
-            numerics_map_before = get_numerics_averaged_by_minute(f["numerics"], start_time_epoch, alignment_time_epoch, pre_minutes_min)
+            numerics_map_before = get_numerics_averaged_by_second(f["numerics"], start_time_epoch, alignment_time_epoch, pre_granularity_sec)
             for col in NUMERIC_COLUMNS:
                 output["numerics_before"][col]["vals"].append(numerics_map_before[col])
                 output["numerics_before"][col]["times"].append(numerics_map_before[f"{col}-time"])
                 output["numerics_before"][col]["lengths"].append(numerics_map_before[f"{col}-length"])
 
 #             print(f"[{datetime.now().isoformat()}] [{csn}] Got before numerics")
-            numerics_map_after = get_numerics_averaged_by_minute(f["numerics"], alignment_time_epoch, end_time_epoch,
-                                                                 post_minutes_min)
+            numerics_map_after = get_numerics_averaged_by_second(f["numerics"], alignment_time_epoch, end_time_epoch, post_granularity_sec)
 #             print(f"[{datetime.now().isoformat()}] [{csn}] Got after numerics")
             for col in NUMERIC_COLUMNS:
                 output["numerics_after"][col]["vals"].append(numerics_map_after[col])
@@ -344,19 +319,18 @@ def process_patient(input_args):
         return output
     except Exception as e:
         print(f"[{datetime.now().isoformat()}] [ERROR] for patient {csn} due to {e}")
-#         print(traceback.format_exc())
+        print(traceback.format_exc())
         return None
-#         raise e
 
 
 def run(input_folder, input_file, output_data_file, output_summary_file,
-        waveform_length_sec, pre_minutes_min, post_minutes_min, align_col, limit):
+        waveform_length_sec, pre_minutes_min, post_minutes_min,
+        pre_granularity_sec, post_granularity_sec, align_col, limit):
     df = pd.read_csv(input_file)
     patients = df["patient_id"].tolist()
 
     csns = []
     alignment_times = []
-    alignment_vals = []
     numerics_before = {}
     numerics_after = {}
     waveforms = {}
@@ -385,7 +359,7 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             if limit is not None and i > limit:
                 break
 
-            input_args = [i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, align_col]
+            input_args = [i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col]
             future = executor.submit(process_patient, input_args)
             fs.append(future)
 
@@ -396,7 +370,6 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
         if result is not None:
             csns.extend([result["csn"] for t in result["alignment_times"]])
             alignment_times.extend(result["alignment_times"])
-            alignment_vals.extend(result["alignment_vals"])
             for col in NUMERIC_COLUMNS:
                 numerics_before[col]["vals"].extend(result["numerics_before"][col]["vals"])
                 numerics_before[col]["times"].extend(result["numerics_before"][col][f"times"])
@@ -410,7 +383,6 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
 
     with h5py.File(output_data_file, "w") as f:
         f.create_dataset("alignment_times", data=alignment_times)
-        f.create_dataset("alignment_vals", data=alignment_vals)
         dset_before = f.create_group("numerics_before")
         dset_after = f.create_group("numerics_after")
         for k in NUMERIC_COLUMNS:
@@ -429,7 +401,7 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
 
     with open(output_summary_file, "w") as f:
         writer = csv.writer(f, delimiter=',', quotechar='"')
-        headers = ["patient_id", "alignment_time", "alignment_val"]
+        headers = ["patient_id", "alignment_time"]
         for k in NUMERIC_COLUMNS:
             headers.append(f"{k}_before_length")
             headers.append(f"{k}_after_length")
@@ -440,7 +412,7 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
 
         i = 0
         while i < len(alignment_times):
-            row = [csns[i], alignment_times[i], ""]
+            row = [csns[i], alignment_times[i]]
             for k in NUMERIC_COLUMNS:
                 row.append(numerics_before[k]["lengths"][i])
                 row.append(numerics_after[k]["lengths"][i])
@@ -477,6 +449,12 @@ if __name__ == '__main__':
     parser.add_argument('-po', '--post-minutes',
                         default=60,
                         help='Number of minutes of averaged data after the high resolution window to use as the prediction outcome')
+    parser.add_argument('-gpr', '--pre-granularity-sec',
+                        default=1,
+                        help='Granularity to use pre-alignment (e.g. 1 means to produce data at a 1 sec resolution)')
+    parser.add_argument('-gpo', '--post-granularity-sec',
+                        default=60,
+                        help='Granularity to use post-alignment (e.g. 60 means to produce data averaged over 60 sec ranges)')
     parser.add_argument('-a', '--align',
                         default=None,
                         help='Specify a column to use as the maximum alignment column. e.g. we might want to collect as much numerics before the first blood draw time')
@@ -498,6 +476,8 @@ if __name__ == '__main__':
     waveform_length_sec = int(args.waveform_length)
     pre_minutes_min = int(args.pre_minutes)
     post_minutes_min = int(args.post_minutes)
+    pre_granularity_sec = int(args.pre_granularity_sec)
+    post_granularity_sec = int(args.post_granularity_sec)
 
     limit = int(args.max_patients) if args.max_patients is not None else None
 
@@ -508,9 +488,11 @@ if __name__ == '__main__':
         f"Starting data generation with input_dir={input_dir}, input_file={input_file}, output_data_file={output_data_file}, output_summary_file={output_summary_file}")
     print(
         f"waveform_length_sec={waveform_length_sec}, pre_minutes_min={pre_minutes_min}, post_minutes_min={post_minutes_min}")
+    print(
+        f"pre_granularity_sec={pre_granularity_sec}, post_granularity_sec={post_granularity_sec}")
     print("-" * 30)
 
     run(input_dir, input_file, output_data_file, output_summary_file, waveform_length_sec, pre_minutes_min,
-        post_minutes_min, align_col, limit)
+        post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, limit)
 
     print("DONE")
