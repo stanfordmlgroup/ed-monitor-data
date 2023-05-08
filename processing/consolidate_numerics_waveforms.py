@@ -69,6 +69,7 @@ VALID_RANGES = {
 }
 
 WAVEFORM_TYPES = {"II", "Pleth", "Resp"}
+WAVEFORM_PRIORITIES = ["II", "Pleth", "Resp"]
 TARGET_WAVEFORM_SAMPLE_RATES = {
     "I": 500,
     "II": 500,
@@ -254,11 +255,11 @@ def read_info(info_file_name):
     return info_map
 
 
-def make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform):
-    waveform_start_time = waveform_type_to_times["II"]["start"]
-    waveform_end_time = waveform_type_to_times["II"]["end"]
+def make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform, anchor="II"):
+    waveform_start_time = waveform_type_to_times[anchor]["start"]
+    waveform_end_time = waveform_type_to_times[anchor]["end"]
     for w, metadata_list in waveform_to_metadata.items():
-        if w != "II":
+        if w != anchor:
             # No overlap with II waveform at all
             if waveform_type_to_times[w]["start"] > waveform_end_time:
                 waveform_type_to_waveform[w] = np.full(int((waveform_end_time - waveform_start_time).total_seconds() * TARGET_WAVEFORM_SAMPLE_RATES[w]), NULL_WAVEFORM_VALUE)
@@ -552,32 +553,33 @@ def process_study(input_args):
 
         waveform_type_to_waveform = {}
         waveform_type_to_times = {}
-        if "II" in waveform_to_metadata:
-            for w, metadata_list in waveform_to_metadata.items():
-                final_waveform, waveform_start_time, waveform_end_time = join_waveforms(patient_id, metadata_list, w)
-                waveform_type_to_waveform[w] = final_waveform
-                waveform_type_to_times[w] = {
-                    "start": waveform_start_time,
-                    "end": waveform_end_time
-                }
+        for w, metadata_list in waveform_to_metadata.items():
+            final_waveform, waveform_start_time, waveform_end_time = join_waveforms(patient_id, metadata_list, w)
+            waveform_type_to_waveform[w] = final_waveform
+            waveform_type_to_times[w] = {
+                "start": waveform_start_time,
+                "end": waveform_end_time
+            }
 
-            # Make waveform lengths consistent between waveforms and resample as needed
-            make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
+        data_length_sec = 0
+        trim_start_sec = 0
+        trim_end_sec = 0
+        for j, waveform_anchor in enumerate(WAVEFORM_PRIORITIES):
+            if waveform_anchor in waveform_to_metadata:
+                if j != len(WAVEFORM_PRIORITIES) - 1:
+                    # Make waveform lengths consistent between waveforms
+                    make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform, anchor=waveform_anchor)
 
-            trim_start_sec, trim_end_sec = get_skip_waveform_seconds(patient_id, waveform_type_to_waveform["II"], "II",
-                                                                     TARGET_WAVEFORM_SAMPLE_RATES["II"])
-            if DEBUG:
-                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Calculated recommended trim to be ({trim_start_sec}, {trim_end_sec})")
-
-            data_length_sec = round(len(waveform_type_to_waveform["II"]) / TARGET_WAVEFORM_SAMPLE_RATES["II"], 1)
-            for w, waveform in waveform_type_to_waveform.items():
+                trim_start_sec, trim_end_sec = get_skip_waveform_seconds(patient_id, waveform_type_to_waveform[waveform_anchor], waveform_anchor,
+                                                                         TARGET_WAVEFORM_SAMPLE_RATES[waveform_anchor])
                 if DEBUG:
-                    print(
-                        f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {w} has length {len(waveform)} corresponding to {len(waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w]} secs")
-        else:
-            data_length_sec = 0
-            trim_start_sec = 0
-            trim_end_sec = 0
+                    print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Calculated recommended trim to be ({trim_start_sec}, {trim_end_sec})")
+
+                data_length_sec = round(len(waveform_type_to_waveform[waveform_anchor]) / TARGET_WAVEFORM_SAMPLE_RATES[waveform_anchor], 1)
+                for w, waveform in waveform_type_to_waveform.items():
+                    if DEBUG:
+                        print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {w} has length {len(waveform)} corresponding to {len(waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w]} secs")
+                break
 
         # Extract numerics data
         #
