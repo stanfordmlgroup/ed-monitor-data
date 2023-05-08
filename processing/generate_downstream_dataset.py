@@ -57,6 +57,9 @@ def get_numerics_averaged_by_second(numerics_obj, start_epoch, end_epoch, averag
     output = {}
     for col in NUMERIC_COLUMNS:
         if col not in numerics_obj:
+            output[col] = np.full(int((end - start) / average_window_sec), np.NaN)
+            output[f"{col}-time"] = np.full(int((end - start) / average_window_sec), np.NaN)
+            output[f"{col}-length"] = 0
             continue
         second_to_vals = {}
         vals = np.array(numerics_obj[col])
@@ -72,6 +75,9 @@ def get_numerics_averaged_by_second(numerics_obj, start_epoch, end_epoch, averag
             times = times[[indices_of_interest]]
         else:
             # There are no usable numerics here
+            output[col] = np.full(int((end - start) / average_window_sec), np.NaN)
+            output[f"{col}-time"] = np.full(int((end - start) / average_window_sec), np.NaN)
+            output[f"{col}-length"] = 0
             continue
 
         assert all(times[i] <= times[i+1] for i in range(len(times) - 1)), "Times are not sorted!"
@@ -94,9 +100,8 @@ def get_numerics_averaged_by_second(numerics_obj, start_epoch, end_epoch, averag
                 second_to_vals[offset] = []
             second_to_vals[offset].append(vals[idx])
 
-        output[col] = np.zeros(int((end - start) / average_window_sec))
-        output[col][:] = np.NaN
-        output[f"{col}-time"] = np.zeros(int((end - start) / average_window_sec))
+        output[col] = np.full(int((end - start) / average_window_sec), np.NaN)
+        output[f"{col}-time"] = np.full(int((end - start) / average_window_sec), np.NaN)
 
         last_val = np.NaN
         valid_vals = 0
