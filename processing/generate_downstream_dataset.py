@@ -151,12 +151,14 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
         for waveform_type in WAVEFORM_COLUMNS:
             waveform_config = WAVEFORMS_OF_INTERST[waveform_type]
 
+            if waveform_type not in f["waveforms"]:
+                raise Exception(f"Waveform {waveform_type} not available")
             waveform_base = f["waveforms"][waveform_type]
             start = get_waveform_offsets(start_time, current_time, waveform_config["orig_frequency"])
             seg_len = int(waveform_len_sec * waveform_config["orig_frequency"])
             if len(waveform_base[start:(start + seg_len)]) < seg_len:
                 # If the waveform is not of expected size, there is no point continuing
-                continue
+                raise Exception(f"Waveform {waveform_type} not usable")
             try:
                 waveform, quality = get_waveform(waveform_base, start, seg_len,
                                                  waveform_config["orig_frequency"],
@@ -302,7 +304,7 @@ def process_patient(input_args):
             try:
                 type_to_waveform_obj = get_best_waveforms(f, waveform_start, recommended_trim_start_sec, alignment_time, waveform_length_sec, csn=csn)
             except Exception as ec:
-                raise Exception(f"Patient did not have any useable waveforms. Technical: {ec}")
+                raise Exception(f"Patient did not have any usable waveforms. Technical: {ec}")
 
             numerics_map_before = get_numerics_averaged_by_second(f["numerics"], start_time_epoch, alignment_time_epoch, pre_granularity_sec)
             for col in NUMERIC_COLUMNS:
