@@ -21,26 +21,22 @@ Usage:
 """
 
 import argparse
+import csv
 import datetime
-import pandas as pd
+import json
+import math
+import os
+import re
+import traceback
+from concurrent import futures
+from pathlib import Path
+
+import h5py
 import numpy as np
+import pandas as pd
+import pytz
 from scipy.signal import resample
 from tqdm import tqdm
-import json
-import os
-import sys
-import pytz
-import re
-import csv
-import matplotlib.pyplot as plt
-import math
-import h5py
-import pickle
-from biosppy.signals.tools import filter_signal
-from pathlib import Path
-from concurrent import futures
-import traceback
-import sys
 
 pd.set_option('display.max_columns', 500)
 
@@ -541,73 +537,47 @@ def process_study(input_args):
                             print(
                                 f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {filename} start={start_offset} end={end_offset} start_offset_time={str(start_offset_time)} end_offset_time={str(end_offset_time)}")
 
+        notes = ""
         if len(waveform_to_metadata) == 0:
             if DEBUG:
                 print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > No waveforms found")
-
-            obj = {
-                "patient_id": patient_id,
-                "data_length_sec": 0,
-                "min_start": min_start,
-                "max_end": max_end,
-                "trim_start_sec": 0,
-                "trim_end_sec": 0,
-                "roomed_time": roomed_time,
-                "dispo_time": dispo_time,
-                "notes": "no waveforms found",
-                "studies": ",".join(studies),
-                "row": patient_to_row[patient_id]
-            }
-            for wt in WAVEFORM_TYPES:
-                obj[wt] = 1 if wt in waveform_to_metadata else 0
-            return obj
+            notes = "no waveforms found"
 
         # Our model is based on the assumption that there are lead II waveforms
         #
         if "II" not in waveform_to_metadata:
             if DEBUG:
                 print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Lead II not found in waveforms")
-
-            obj = {
-                "patient_id": patient_id,
-                "data_length_sec": 0,
-                "min_start": min_start,
-                "max_end": max_end,
-                "trim_start_sec": 0,
-                "trim_end_sec": 0,
-                "roomed_time": roomed_time,
-                "dispo_time": dispo_time,
-                "notes": "lead II not found",
-                "studies": ",".join(studies),
-                "row": patient_to_row[patient_id]
-            }
-            for wt in WAVEFORM_TYPES:
-                obj[wt] = 1 if wt in waveform_to_metadata else 0
-            return obj
+            notes = "lead II not found"
 
         waveform_type_to_waveform = {}
         waveform_type_to_times = {}
-        for w, metadata_list in waveform_to_metadata.items():
-            final_waveform, waveform_start_time, waveform_end_time = join_waveforms(patient_id, metadata_list, w)
-            waveform_type_to_waveform[w] = final_waveform
-            waveform_type_to_times[w] = {
-                "start": waveform_start_time,
-                "end": waveform_end_time
-            }
+        if "II" in waveform_to_metadata:
+            for w, metadata_list in waveform_to_metadata.items():
+                final_waveform, waveform_start_time, waveform_end_time = join_waveforms(patient_id, metadata_list, w)
+                waveform_type_to_waveform[w] = final_waveform
+                waveform_type_to_times[w] = {
+                    "start": waveform_start_time,
+                    "end": waveform_end_time
+                }
 
-        # Make waveform lengths consistent between waveforms and resample as needed
-        make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
+            # Make waveform lengths consistent between waveforms and resample as needed
+            make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
 
-        trim_start_sec, trim_end_sec = get_skip_waveform_seconds(patient_id, waveform_type_to_waveform["II"], "II",
-                                                                 TARGET_WAVEFORM_SAMPLE_RATES["II"])
-        if DEBUG:
-            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Calculated recommended trim to be ({trim_start_sec}, {trim_end_sec})")
-
-        data_length_sec = round(len(waveform_type_to_waveform["II"]) / TARGET_WAVEFORM_SAMPLE_RATES["II"], 1)
-        for w, waveform in waveform_type_to_waveform.items():
+            trim_start_sec, trim_end_sec = get_skip_waveform_seconds(patient_id, waveform_type_to_waveform["II"], "II",
+                                                                     TARGET_WAVEFORM_SAMPLE_RATES["II"])
             if DEBUG:
-                print(
-                    f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {w} has length {len(waveform)} corresponding to {len(waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w]} secs")
+                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Calculated recommended trim to be ({trim_start_sec}, {trim_end_sec})")
+
+            data_length_sec = round(len(waveform_type_to_waveform["II"]) / TARGET_WAVEFORM_SAMPLE_RATES["II"], 1)
+            for w, waveform in waveform_type_to_waveform.items():
+                if DEBUG:
+                    print(
+                        f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {w} has length {len(waveform)} corresponding to {len(waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w]} secs")
+        else:
+            data_length_sec = 0
+            trim_start_sec = 0
+            trim_end_sec = 0
 
         # Extract numerics data
         #
@@ -639,9 +609,9 @@ def process_study(input_args):
             "trim_end_sec": trim_end_sec,
             "roomed_time": roomed_time,
             "dispo_time": dispo_time,
-            "waveform_start_time": waveform_type_to_times["II"]["start"],
-            "waveform_end_time": waveform_type_to_times["II"]["end"],
-            "notes": "",
+            "waveform_start_time": waveform_type_to_times["II"]["start"] if "II" in waveform_type_to_times else "",
+            "waveform_end_time": waveform_type_to_times["II"]["end"] if "II" in waveform_type_to_times else "",
+            "notes": notes,
             "studies": ",".join(studies),
         }
         for wt in WAVEFORM_TYPES:

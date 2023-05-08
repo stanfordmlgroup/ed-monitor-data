@@ -63,9 +63,16 @@ def get_numerics_averaged_by_second(numerics_obj, start_epoch, end_epoch, averag
         times = np.array(numerics_obj[f"{col}-time"])
         assert len(times) == len(vals)
 
-        indices_of_interest = np.squeeze(np.argwhere(np.logical_and(times >= start, times <= end)))
-        vals = vals[indices_of_interest]
-        times = times[indices_of_interest]
+        indices_of_interest = np.squeeze(np.argwhere(np.logical_and(times >= start, times <= end)), axis=-1)
+        if len(indices_of_interest) > 1:
+            vals = vals[indices_of_interest]
+            times = times[indices_of_interest]
+        elif len(indices_of_interest) == 1:
+            vals = vals[[indices_of_interest]]
+            times = times[[indices_of_interest]]
+        else:
+            # There are no usable numerics here
+            continue
 
         assert all(times[i] <= times[i+1] for i in range(len(times) - 1)), "Times are not sorted!"
 
@@ -125,7 +132,7 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
         waveform_base = np.array(f["waveforms"][waveform_type])
         if len(waveform_base) == 0 or (waveform_base == waveform_base[0]).all():
             # The waveform is just empty so skip this patient
-            raise Exception(f"Waveform {waveform_type} is empty")
+            raise Exception(f"Waveform {waveform_type} is empty or flat-line")
 
     # For each sliding window...
     while current_time <= (end_time - timedelta(seconds=waveform_len_sec)):
