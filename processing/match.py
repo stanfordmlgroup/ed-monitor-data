@@ -212,24 +212,25 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file,
 #
 # Main
 #
-parser = argparse.ArgumentParser(description='Matches a cohort file with a Philips bed summary file')
-parser.add_argument('-ci', '--cohort-input-file',
-                    required=True,
-                    help='The path to a cohort file. e.g. "/deep/group/ed-monitor/cp_cohort_v3.csv"')
-parser.add_argument('-ef', '--experiment-folders',
-                    required=True,
-                    help='Comma separated paths containing the experiment directories. e.g. "/deep/group/ed-monitor/2020_08_23_2020_09_23,/deep/group/ed-monitor/2020_09_23_2020_11_30"')
-parser.add_argument('-pc', '--positive-column',
-                    required=False,
-                    default="Case_for_train",
-                    help='The name of the column that contains the outcome variable - e.g. if it is disease or not. This is only used for statistics purposes. Optional - leave out if not applicable.')
-parser.add_argument('-co', '--cohort-output-file',
-                    required=True,
-                    help='The path to the cohort output file. e.g. "/deep/group/ed-monitor/cohort.output.csv"')
-parser.add_argument('-eo', '--export-output-file',
-                    required=True,
-                    help='The path to the export output file. e.g. "/deep/group/ed-monitor/export.output.csv"')
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Matches a cohort file with a Philips bed summary file')
+    parser.add_argument('-ci', '--cohort-input-file',
+                        required=True,
+                        help='The path to a cohort file. e.g. "/deep/group/ed-monitor/cp_cohort_v3.csv"')
+    parser.add_argument('-ef', '--experiment-folders',
+                        required=True,
+                        help='Comma separated paths containing the experiment directories. e.g. "/deep/group/ed-monitor/2020_08_23_2020_09_23,/deep/group/ed-monitor/2020_09_23_2020_11_30"')
+    parser.add_argument('-pc', '--positive-column',
+                        required=False,
+                        default="Case_for_train",
+                        help='The name of the column that contains the outcome variable - e.g. if it is disease or not. This is only used for statistics purposes. Optional - leave out if not applicable.')
+    parser.add_argument('-co', '--cohort-output-file',
+                        required=True,
+                        help='The path to the cohort output file. e.g. "/deep/group/ed-monitor/cohort.output.csv"')
+    parser.add_argument('-eo', '--export-output-file',
+                        required=True,
+                        help='The path to the export output file. e.g. "/deep/group/ed-monitor/export.output.csv"')
 
-args = parser.parse_args()
+    args = parser.parse_args()
 
-run(args.cohort_input_file, args.experiment_folders.split(","), args.cohort_output_file, args.export_output_file, args.positive_column)
+    run(args.cohort_input_file, args.experiment_folders.split(","), args.cohort_output_file, args.export_output_file, args.positive_column)

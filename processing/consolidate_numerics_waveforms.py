@@ -405,11 +405,12 @@ def parse_vital(vital, index_to_return=0):
     except Exception:
         return float('nan')
 
+
 def process_study(input_args):
     curr_patient_index, total_patients, patient_id, unsorted_studies, patient_to_actual_times, patient_to_row, study_to_info, study_to_study_folder, output_dir = input_args
     min_start = None
     max_end = None
-    
+
     try:
         print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Starting patient processing {curr_patient_index}/{total_patients}...")
 
@@ -418,7 +419,7 @@ def process_study(input_args):
 
         # Remove any duplicate studies
         unsorted_studies = list(set(unsorted_studies))
-        
+
         # Determine the order to parse the studies in (it should be ordered by the clock time)
         #
         study_to_start = []
@@ -546,7 +547,7 @@ def process_study(input_args):
 
         # Our model is based on the assumption that there are lead II waveforms
         #
-        if "II" not in waveform_to_metadata:
+        elif "II" not in waveform_to_metadata:
             if DEBUG:
                 print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Lead II not found in waveforms")
             notes = "lead II not found"
@@ -564,11 +565,16 @@ def process_study(input_args):
         data_length_sec = 0
         trim_start_sec = 0
         trim_end_sec = 0
+        waveform_start_time = ""
+        waveform_end_time = ""
         for j, waveform_anchor in enumerate(WAVEFORM_PRIORITIES):
             if waveform_anchor in waveform_to_metadata:
                 if j != len(WAVEFORM_PRIORITIES) - 1:
                     # Make waveform lengths consistent between waveforms
                     make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform, anchor=waveform_anchor)
+
+                waveform_start_time = waveform_type_to_times[waveform_anchor]["start"]
+                waveform_end_time = waveform_type_to_times[waveform_anchor]["end"]
 
                 trim_start_sec, trim_end_sec = get_skip_waveform_seconds(patient_id, waveform_type_to_waveform[waveform_anchor], waveform_anchor,
                                                                          TARGET_WAVEFORM_SAMPLE_RATES[waveform_anchor])
@@ -611,8 +617,8 @@ def process_study(input_args):
             "trim_end_sec": trim_end_sec,
             "roomed_time": roomed_time,
             "dispo_time": dispo_time,
-            "waveform_start_time": waveform_type_to_times["II"]["start"] if "II" in waveform_type_to_times else "",
-            "waveform_end_time": waveform_type_to_times["II"]["end"] if "II" in waveform_type_to_times else "",
+            "waveform_start_time": waveform_start_time,
+            "waveform_end_time": waveform_end_time,
             "notes": notes,
             "studies": ",".join(studies),
         }
