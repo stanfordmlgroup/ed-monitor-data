@@ -471,7 +471,7 @@ def join_waveforms(patient_id, file_metadata_list, w, available_waveforms, wavef
             print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] sample rate is not expected, resampling...")
             waveform = resample(waveform, int(len(waveform) * (TARGET_WAVEFORM_SAMPLE_RATES[w] / sample_rate)))
 
-        final_waveform = handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_waveform, sample_rate, available_waveforms)
+        final_waveform = handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_waveform, TARGET_WAVEFORM_SAMPLE_RATES[w], available_waveforms)
         prev_time = metadata["end_offset_time"]
         final_waveform = np.concatenate((final_waveform, waveform))
         time_jumps.extend(metadata["time_jumps"])
