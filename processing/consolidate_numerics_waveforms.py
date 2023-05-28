@@ -30,6 +30,7 @@ import re
 import traceback
 from concurrent import futures
 from pathlib import Path
+from decimal import *
 
 import h5py
 import numpy as np
@@ -316,11 +317,11 @@ def get_overlap_interval(available_waveforms):
     If ECG is available, the overlap interval is (1/500) = 2 ms
     """
     if "Resp" in available_waveforms:
-        return 0.016
+        return Decimal('0.016')
     elif "Pleth" in available_waveforms:
-        return 0.008
+        return Decimal('0.008')
     elif "II" in available_waveforms:
-        return 0.002
+        return Decimal('0.002')
     else:
         raise Exception("No expected waveforms were found")
 
@@ -366,8 +367,9 @@ def handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_wavef
     - Position 19933 = 2021-09-02 00:00:00.002000-07:00
     """
     if prev_time is not None:
+        sample_rate = Decimal(str(round(sample_rate, 1)))
         overlap_interval = get_overlap_interval(available_waveforms)
-        diff = (metadata["start_offset_time"] - prev_time).total_seconds()
+        diff = Decimal(str(round((metadata["start_offset_time"] - prev_time).total_seconds(), 3)))
         if diff > 0:
             # The next waveform is after the previous waveform
             #
@@ -376,7 +378,7 @@ def handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_wavef
 
             # e.g. diff = 1.314, overlap_interval = 0.016
             # number_of_cycles_of_null_to_add = 82
-            number_of_cycles_of_null_to_add = int(diff / overlap_interval)
+            number_of_cycles_of_null_to_add = math.floor(diff / overlap_interval)
             # number_of_sec_of_null_to_add = 1.312
             number_of_sec_of_null_to_add = number_of_cycles_of_null_to_add * overlap_interval
             # remaining_gap = 0.002
@@ -386,7 +388,7 @@ def handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_wavef
 
             if remaining_gap > 0:
                 # This is "Position 19932" in the example above
-                timepoint_1 = (len(final_waveform) - 1, metadata["start_offset_time"] - datetime.timedelta(seconds=remaining_gap))
+                timepoint_1 = (len(final_waveform) - 1, metadata["start_offset_time"] - datetime.timedelta(seconds=float(remaining_gap)))
 
                 # This is "Position 19933" in the example above
                 timepoint_2 = (len(final_waveform), metadata["start_offset_time"])
@@ -411,7 +413,7 @@ def handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_wavef
 
                 if remaining_gap > 0:
                     # This is "Position 19932" in the example above
-                    timepoint_1 = (len(final_waveform) - 1, metadata["start_offset_time"] - datetime.timedelta(seconds=remaining_gap))
+                    timepoint_1 = (len(final_waveform) - 1, metadata["start_offset_time"] - datetime.timedelta(seconds=float(remaining_gap)))
 
                     # This is "Position 19933" in the example above
                     timepoint_2 = (len(final_waveform), metadata["start_offset_time"])
@@ -508,11 +510,11 @@ def get_start_offset_time(roomed_time, waveform_start):
         # e.g. roomed_time = 2023-01-01T00:00:00.861Z
         # e.g. waveform_start = 2023-01-01T00:00:00.160Z
         # diff = 0.861 - 0.160 = 0.701
-        diff = (roomed_time - waveform_start).total_seconds()
+        diff = Decimal(str(round((roomed_time - waveform_start).total_seconds(), 3)))
         # diff = 0.701 % 0.016 = 0.013
-        diff = diff % 0.016
+        diff = diff % Decimal('0.016')
         # Plus an additional cycle so that the time becomes after the roomed time
-        return roomed_time - datetime.timedelta(seconds=diff) + datetime.timedelta(seconds=0.016)
+        return roomed_time - datetime.timedelta(seconds=float(diff)) + datetime.timedelta(seconds=0.016)
     else:
         return roomed_time
 
@@ -527,11 +529,11 @@ def get_end_offset_time(dispo_time, waveform_end):
         # e.g. waveform_end = 2023-05-31T00:00:00.002Z
         # e.g. dispo_time = 2023-05-30T23:52:00.000Z
         # diff = 480.002 sec
-        diff = (waveform_end - dispo_time).total_seconds()
+        diff = Decimal(str(round((waveform_end - dispo_time).total_seconds(), 3)))
         # diff = 0.701 % 0.016 = 0.013
-        diff = diff % 0.016
+        diff = diff % Decimal('0.016')
         # Subtract an additional cycle so that the time becomes before the dispo time
-        return dispo_time + datetime.timedelta(seconds=diff) - datetime.timedelta(seconds=0.016)
+        return dispo_time + datetime.timedelta(seconds=float(diff)) - datetime.timedelta(seconds=0.016)
     else:
         return dispo_time
 
@@ -719,10 +721,6 @@ def process_study(input_args):
         waveform_end_time = ""
         for j, waveform_anchor in enumerate(WAVEFORM_PRIORITIES):
             if waveform_anchor in waveform_to_metadata:
-                # if j != len(WAVEFORM_PRIORITIES) - 1:
-                #     # Make waveform lengths consistent between waveforms
-                #     make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform, anchor=waveform_anchor)
-
                 waveform_start_time = waveform_type_to_times[waveform_anchor]["start"]
                 waveform_end_time = waveform_type_to_times[waveform_anchor]["end"]
 
