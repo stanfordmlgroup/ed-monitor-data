@@ -255,38 +255,6 @@ def read_info(info_file_name):
     return info_map
 
 
-def make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform, anchor="II"):
-    waveform_start_time = waveform_type_to_times[anchor]["start"]
-    waveform_end_time = waveform_type_to_times[anchor]["end"]
-    for w, metadata_list in waveform_to_metadata.items():
-        if w != anchor:
-            # No overlap with II waveform at all
-            if waveform_type_to_times[w]["start"] > waveform_end_time:
-                waveform_type_to_waveform[w] = np.full(int((waveform_end_time - waveform_start_time).total_seconds() * TARGET_WAVEFORM_SAMPLE_RATES[w]), NULL_WAVEFORM_VALUE)
-                continue
-            if waveform_type_to_times[w]["end"] < waveform_start_time:
-                waveform_type_to_waveform[w] = np.full(int((waveform_end_time - waveform_start_time).total_seconds() * TARGET_WAVEFORM_SAMPLE_RATES[w]), NULL_WAVEFORM_VALUE)
-                continue
-
-            # Partial overlap with II waveform
-            diff = (waveform_type_to_times[w]["start"] - waveform_start_time).total_seconds()
-            if diff > 0:
-                # The non-II begins ahead of the II waveform so we must pad the non-II waveform
-                waveform_type_to_waveform[w] = np.concatenate((np.full(int(diff * TARGET_WAVEFORM_SAMPLE_RATES[w]), NULL_WAVEFORM_VALUE), waveform_type_to_waveform[w]))
-            elif diff < 0:
-                # The non-II begins before the II waveform so we must trim the non-II waveform
-                waveform_type_to_waveform[w] = waveform_type_to_waveform[w][int(abs(diff) * TARGET_WAVEFORM_SAMPLE_RATES[w]):]
-
-            diff = (waveform_type_to_times[w]["end"] - waveform_end_time).total_seconds()
-            if diff > 0:
-                # The non-II ends ahead of the II waveform so we must trim the non-II waveform
-                waveform_type_to_waveform[w] = waveform_type_to_waveform[w][:-int(abs(diff) * TARGET_WAVEFORM_SAMPLE_RATES[w])]
-            elif diff < 0:
-                # The non-II ends before the II waveform so we must pad the non-II waveform
-                waveform_type_to_waveform[w] = np.concatenate((waveform_type_to_waveform[w],
-                    (np.full(int(abs(diff) * TARGET_WAVEFORM_SAMPLE_RATES[w]), NULL_WAVEFORM_VALUE))))
-
-
 def get_skip_waveform_seconds(patient_id, waveform, wave_type, sample_rate):
     """
     Trims the waveforms to the point where there is actual data.
@@ -332,6 +300,12 @@ def get_skip_waveform_seconds(patient_id, waveform, wave_type, sample_rate):
         end = start
 
     return math.ceil(start / sample_rate), math.floor(end / sample_rate)
+
+
+def get_waveform_offset(study_start_time, patient_time, sample_rate=500):
+    # Note that we can round the offset because the input study_start_time, patient_time were picked
+    # to guarantee that we end up with a whole number
+    return round((patient_time - study_start_time).total_seconds() * sample_rate)
 
 
 def get_overlap_interval(available_waveforms):
@@ -452,22 +426,43 @@ def handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_wavef
         return final_waveform
 
 
-def join_waveforms(patient_id, file_metadata_list, w, available_waveforms):
+def join_waveforms(patient_id, file_metadata_list, w, available_waveforms, waveform_start_end_times):
     final_waveform = np.array([])
-    waveform_start_time = None
-    waveform_end_time = None
     prev_time = None
     time_jumps = []
-    for i, metadata in enumerate(file_metadata_list):
-        # Note we can iterate in order of the metadata because files were scanned in chronological
-        # order based on their file prefixes.
-        gain = metadata["info"][w]["gain"]
-        sample_rate = metadata["info"][w]["sample_rate"]
-        # print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Reading from file {metadata['filename']} trimming {int(metadata['start_offset'])} to {int(metadata['end_offset'])}")
-        waveform = np.fromfile(metadata["filename"], dtype=np.int16)
-        waveform = waveform[int(metadata["start_offset"]):int(metadata["end_offset"])]
-        waveform = waveform * gain
-        assert len(waveform) == int(metadata["end_offset"]) - int(metadata["start_offset"]), "Trimmed waveform was not of expected length!"
+
+    # These are all the known waveform segments. Not all segments will have all waveform types
+    # so we want to NULL out the waveforms for those segments which do not have data.
+    available_start_end_times = []
+    for waveform_start in sorted(waveform_start_end_times, key=lambda key: key):
+        available_start_end_times.append((waveform_start, waveform_start_end_times[waveform_start]))
+
+    start_time_to_metadata = {}
+    for metadata in file_metadata_list:
+        start_time_to_metadata[metadata["start_offset_time"]] = metadata
+
+    for start_end_times in available_start_end_times:
+        start_time = start_end_times[0]
+        if start_time in start_time_to_metadata:
+            metadata = start_time_to_metadata[start_time]
+            gain = metadata["info"][w]["gain"]
+            sample_rate = metadata["info"][w]["sample_rate"]
+            waveform = np.fromfile(metadata["filename"], dtype=np.int16)
+            waveform = waveform[int(metadata["start_offset"]):int(metadata["end_offset"])]
+            waveform = waveform * gain
+            assert len(waveform) == int(metadata["end_offset"]) - int(metadata["start_offset"]), "Trimmed waveform was not of expected length!"
+        else:
+            # This waveform type did not have any files for this time segment at all.
+            # Pretend we read a waveform that was basically all null
+            end_time = start_end_times[1]
+            sample_rate = TARGET_WAVEFORM_SAMPLE_RATES[w]
+            seg_len = get_waveform_offset(start_time, end_time, sample_rate=TARGET_WAVEFORM_SAMPLE_RATES[w])
+            waveform = np.full(seg_len, NULL_WAVEFORM_VALUE)
+            metadata = {
+                "start_offset_time": start_time,
+                "end_offset_time": end_time,
+                "time_jumps": []
+            }
 
         # Resample to the target waveform frequency
         if sample_rate != TARGET_WAVEFORM_SAMPLE_RATES[w]:
@@ -477,12 +472,10 @@ def join_waveforms(patient_id, file_metadata_list, w, available_waveforms):
         final_waveform = handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_waveform, sample_rate, available_waveforms)
         prev_time = metadata["end_offset_time"]
         final_waveform = np.concatenate((final_waveform, waveform))
-
-        if i == 0:
-            waveform_start_time = metadata["start_offset_time"]
-        if i == len(file_metadata_list) - 1:
-            waveform_end_time = metadata["end_offset_time"]
         time_jumps.extend(metadata["time_jumps"])
+
+    waveform_start_time = available_start_end_times[0][0] # Start time of first segment
+    waveform_end_time = available_start_end_times[-1][1] # End time of last segment
 
     target_len_sec = (waveform_end_time - waveform_start_time).total_seconds()
     total_time_jump_sec = 0
@@ -494,10 +487,6 @@ def join_waveforms(patient_id, file_metadata_list, w, available_waveforms):
     assert round(target_len_sec, 3) == round(actual_time, 3), "Actual waveform length does not match the expected time"
 
     return final_waveform, waveform_start_time, waveform_end_time, time_jumps
-
-
-def get_waveform_offset(study_start_time, patient_time, sample_rate=500):
-    return (patient_time - study_start_time).total_seconds() * sample_rate
 
 
 def parse_vital(vital, index_to_return=0):
@@ -708,8 +697,14 @@ def process_study(input_args):
 
         waveform_type_to_waveform = {}
         waveform_type_to_times = {}
+
+        waveform_start_end_times = {}
         for w, metadata_list in waveform_to_metadata.items():
-            final_waveform, waveform_start_time, waveform_end_time, time_jumps = join_waveforms(patient_id, metadata_list, w, set(waveform_to_metadata.keys()))
+            for metadata in metadata_list:
+                waveform_start_end_times[metadata["start_offset_time"]] = metadata["end_offset_time"]
+
+        for w, metadata_list in waveform_to_metadata.items():
+            final_waveform, waveform_start_time, waveform_end_time, time_jumps = join_waveforms(patient_id, metadata_list, w, set(waveform_to_metadata.keys()), waveform_start_end_times)
             waveform_type_to_waveform[w] = final_waveform
             waveform_type_to_times[w] = {
                 "start": waveform_start_time,
@@ -724,9 +719,9 @@ def process_study(input_args):
         waveform_end_time = ""
         for j, waveform_anchor in enumerate(WAVEFORM_PRIORITIES):
             if waveform_anchor in waveform_to_metadata:
-                if j != len(WAVEFORM_PRIORITIES) - 1:
-                    # Make waveform lengths consistent between waveforms
-                    make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform, anchor=waveform_anchor)
+                # if j != len(WAVEFORM_PRIORITIES) - 1:
+                #     # Make waveform lengths consistent between waveforms
+                #     make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform, anchor=waveform_anchor)
 
                 waveform_start_time = waveform_type_to_times[waveform_anchor]["start"]
                 waveform_end_time = waveform_type_to_times[waveform_anchor]["end"]
