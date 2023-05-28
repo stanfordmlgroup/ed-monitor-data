@@ -334,11 +334,130 @@ def get_skip_waveform_seconds(patient_id, waveform, wave_type, sample_rate):
     return math.ceil(start / sample_rate), math.floor(end / sample_rate)
 
 
-def join_waveforms(patient_id, file_metadata_list, w):
+def get_overlap_interval(available_waveforms):
+    """
+    The overlap interval is dominated by the waveform which has the longest interval:
+    If RESP is available, the overlap interval is (1/62.5) = 16 ms
+    If PPG is available, the overlap interval is (1/125) = 8 ms
+    If ECG is available, the overlap interval is (1/500) = 2 ms
+    """
+    if "Resp" in available_waveforms:
+        return 0.016
+    elif "Pleth" in available_waveforms:
+        return 0.008
+    elif "II" in available_waveforms:
+        return 0.002
+    else:
+        raise Exception("No expected waveforms were found")
+
+
+def handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_waveform, sample_rate, available_waveforms):
+    """
+    There is an edge case where consecutive Philips monitoring files do not completely align.
+    This means that the second file could start before or after the first file which could
+    lead to alignment issues. Here, we ensure that the files are always joined at the alignment
+    boundaries, meaning, the ECG, PPG, and RESP waveforms will never go out of sync.
+
+    FILE #1
+
+    ECG (500 Hz): X X X X X X X X X X X X X X X X
+    PPG (125 Hz): Y       Y       Y       Y
+    RESP (62.5 ): Z               Z
+                                                ^
+                                                End Time = 2021-09-02 00:00:00.003000-07:00
+
+    -----
+
+    FILE #2
+
+    ECG (500 Hz):                              A A A A A A A A
+    PPG (125 Hz):                              B       B
+    RESP (62.5 ):                              C
+                                               ^
+                                               Start Time = 2021-09-02 00:00:00.002000-07:00
+
+    -----
+
+    CONSOLIDATED WAVEFORM:
+
+
+    ECG (500 Hz): X X X X X X X X A A A A A A A A
+    PPG (125 Hz): Y       Y       B       B
+    RESP (62.5 ): Z               C
+                                ^ ^
+                Position = 19932   Position = 19933
+
+    time_points (where position is 0-indexed):
+    - Position 19932 = 2021-09-01 23:59:59.987000-07:00
+    - Position 19933 = 2021-09-02 00:00:00.002000-07:00
+    """
+    if prev_time is not None:
+        overlap_interval = get_overlap_interval(available_waveforms)
+        diff = (metadata["start_offset_time"] - prev_time).total_seconds()
+        if diff > 0:
+            # The next waveform is after the previous waveform
+            #
+            print(
+                f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] start offset was after previous time!")
+
+            # e.g. diff = 1.314, overlap_interval = 0.016
+            # number_of_cycles_of_null_to_add = 82
+            number_of_cycles_of_null_to_add = int(diff / overlap_interval)
+            # number_of_sec_of_null_to_add = 1.312
+            number_of_sec_of_null_to_add = number_of_cycles_of_null_to_add * overlap_interval
+            # remaining_gap = 0.002
+            remaining_gap = diff % overlap_interval
+
+            final_waveform = np.concatenate((final_waveform, np.full(int(number_of_sec_of_null_to_add * sample_rate), NULL_WAVEFORM_VALUE)))
+
+            if remaining_gap > 0:
+                # This is "Position 19932" in the example above
+                timepoint_1 = (len(final_waveform) - 1, metadata["start_offset_time"] - datetime.timedelta(seconds=remaining_gap))
+
+                # This is "Position 19933" in the example above
+                timepoint_2 = (len(final_waveform), metadata["start_offset_time"])
+                metadata["time_jumps"].append((timepoint_1, timepoint_2))
+
+            return final_waveform
+        elif diff < 0:
+            # Rarely the waveforms will overlap so we can trim the previous waveform
+            print(
+                f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] start offset was before previous time!")
+            if abs(diff * sample_rate) > 0:
+
+                # e.g. diff = -1.314, overlap_interval = 0.016
+                # number_of_cycles_of_null_to_add = -83
+                number_of_cycles_to_remove = math.floor(diff / overlap_interval)
+                # number_of_sec_to_remove = -1.328
+                number_of_sec_to_remove = number_of_cycles_to_remove * overlap_interval
+                # remaining_gap = 0.014
+                remaining_gap = abs(number_of_sec_to_remove - diff)
+
+                final_waveform = final_waveform[:int(number_of_sec_to_remove * sample_rate)]
+
+                if remaining_gap > 0:
+                    # This is "Position 19932" in the example above
+                    timepoint_1 = (len(final_waveform) - 1, metadata["start_offset_time"] - datetime.timedelta(seconds=remaining_gap))
+
+                    # This is "Position 19933" in the example above
+                    timepoint_2 = (len(final_waveform), metadata["start_offset_time"])
+                    metadata["time_jumps"].append((timepoint_1, timepoint_2))
+
+            return final_waveform
+        else:
+            # The alignment is perfect, no special handling required
+            return final_waveform
+    else:
+        # This is the first file, so no need to worry about this edge case
+        return final_waveform
+
+
+def join_waveforms(patient_id, file_metadata_list, w, available_waveforms):
     final_waveform = np.array([])
     waveform_start_time = None
     waveform_end_time = None
     prev_time = None
+    time_jumps = []
     for i, metadata in enumerate(file_metadata_list):
         # Note we can iterate in order of the metadata because files were scanned in chronological
         # order based on their file prefixes.
@@ -348,21 +467,14 @@ def join_waveforms(patient_id, file_metadata_list, w):
         waveform = np.fromfile(metadata["filename"], dtype=np.int16)
         waveform = waveform[int(metadata["start_offset"]):int(metadata["end_offset"])]
         waveform = waveform * gain
+        assert len(waveform) == int(metadata["end_offset"]) - int(metadata["start_offset"]), "Trimmed waveform was not of expected length!"
 
         # Resample to the target waveform frequency
         if sample_rate != TARGET_WAVEFORM_SAMPLE_RATES[w]:
             print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] sample rate is not expected, resampling...")
             waveform = resample(waveform, int(len(waveform) * (TARGET_WAVEFORM_SAMPLE_RATES[w] / sample_rate)))
 
-        if prev_time is not None:
-            diff = (metadata["start_offset_time"] - prev_time).total_seconds()
-            if diff > 0:
-                # Sometimes there is a gap between consecutive waveforms
-                final_waveform = np.concatenate((final_waveform, np.full(int(diff * sample_rate), NULL_WAVEFORM_VALUE)))
-            elif diff < 0:
-                # Rarely the waveforms will overlap so we can trim the previous waveform
-                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] start offset was before previous time!")
-                final_waveform = final_waveform[:int(diff * sample_rate)]
+        final_waveform = handle_waveform_overlap_and_gap(patient_id, prev_time, metadata, final_waveform, sample_rate, available_waveforms)
         prev_time = metadata["end_offset_time"]
         final_waveform = np.concatenate((final_waveform, waveform))
 
@@ -370,27 +482,18 @@ def join_waveforms(patient_id, file_metadata_list, w):
             waveform_start_time = metadata["start_offset_time"]
         if i == len(file_metadata_list) - 1:
             waveform_end_time = metadata["end_offset_time"]
+        time_jumps.extend(metadata["time_jumps"])
 
-    # Pad the rest of the array due to rounding errors
     target_len_sec = (waveform_end_time - waveform_start_time).total_seconds()
-    if len(final_waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w] != target_len_sec:
-        # It should not be off by more than one sec
-        off_sec = abs(len(final_waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w] - target_len_sec)
-        if off_sec >= 0:
-            # Resp waveforms are especially vulnerable to differences due to its non-integer sampling rate
-            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Target vs actual for {w} off by {off_sec} sec")
+    total_time_jump_sec = 0
+    for tj in time_jumps:
+        # tj = ((pos_1, time_1), (pos_2, time_2))
+        total_time_jump_sec += (tj[1][1] - tj[0][1]).total_seconds()
+    actual_time = len(final_waveform) / TARGET_WAVEFORM_SAMPLE_RATES[w] + total_time_jump_sec
 
-        if off_sec >= 1:
-            # Resp waveforms are especially vulnerable to differences due to its non-integer sampling rate
-            print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] [WARN]    > Target vs actual for {w} off by a large amount")
+    assert round(target_len_sec, 3) == round(actual_time, 3), "Actual waveform length does not match the expected time"
 
-        target_diff = int((target_len_sec * TARGET_WAVEFORM_SAMPLE_RATES[w]) - len(final_waveform))
-        if target_diff < 0:
-            final_waveform = final_waveform[:target_diff]
-        else:
-            final_waveform = np.concatenate((final_waveform, np.zeros(target_diff)))
-
-    return final_waveform, waveform_start_time, waveform_end_time
+    return final_waveform, waveform_start_time, waveform_end_time, time_jumps
 
 
 def get_waveform_offset(study_start_time, patient_time, sample_rate=500):
@@ -404,6 +507,55 @@ def parse_vital(vital, index_to_return=0):
         return float(vital)
     except Exception:
         return float('nan')
+
+
+def get_start_offset_time(roomed_time, waveform_start):
+    if roomed_time < waveform_start:
+        return waveform_start
+    elif roomed_time > waveform_start:
+        # Ensure we return the roomed time that is a multiple of the cycle count of 16 ms
+        # 16 ms because this would be the lowest common denominator of
+        # ECG 500 hz (1/500 = 2 ms), PPG 125 Hz (1/125 = 8 ms), and Resp 62.5 Hz (1/62.5 = 16 ms)
+        # e.g. roomed_time = 2023-01-01T00:00:00.861Z
+        # e.g. waveform_start = 2023-01-01T00:00:00.160Z
+        # diff = 0.861 - 0.160 = 0.701
+        diff = (roomed_time - waveform_start).total_seconds()
+        # diff = 0.701 % 0.016 = 0.013
+        diff = diff % 0.016
+        # Plus an additional cycle so that the time becomes after the roomed time
+        return roomed_time - datetime.timedelta(seconds=diff) + datetime.timedelta(seconds=0.016)
+    else:
+        return roomed_time
+
+
+def get_end_offset_time(dispo_time, waveform_end):
+    if dispo_time > waveform_end:
+        return waveform_end
+    elif dispo_time < waveform_end:
+        # Ensure we return the end time is a multiple of the cycle count of 16 ms
+        # 16 ms because this would be the lowest common denominator of
+        # ECG 500 hz (1/500 = 2 ms), PPG 125 Hz (1/125 = 8 ms), and Resp 62.5 Hz (1/62.5 = 16 ms)
+        # e.g. waveform_end = 2023-05-31T00:00:00.002Z
+        # e.g. dispo_time = 2023-05-30T23:52:00.000Z
+        # diff = 480.002 sec
+        diff = (waveform_end - dispo_time).total_seconds()
+        # diff = 0.701 % 0.016 = 0.013
+        diff = diff % 0.016
+        # Subtract an additional cycle so that the time becomes before the dispo time
+        return dispo_time + datetime.timedelta(seconds=diff) - datetime.timedelta(seconds=0.016)
+    else:
+        return dispo_time
+
+
+def format_time_jumps(time_jumps):
+    output = []
+    for tj in time_jumps:
+        # tj = ((pos_1, time_1), (pos_2, time_2))
+        output.append([
+            [tj[0][0], tj[0][1].timestamp()],
+            [tj[1][0], tj[1][1].timestamp()],
+        ])
+    return output
 
 
 def process_study(input_args):
@@ -518,8 +670,9 @@ def process_study(input_args):
                     waveform_start = start_times[prefix]
                     waveform_end = end_times[prefix]
                     if waveform_start <= dispo_time and roomed_time <= waveform_end:
-                        start_offset_time = max(roomed_time, waveform_start)
-                        end_offset_time = min(dispo_time, waveform_end)
+                        start_offset_time = get_start_offset_time(roomed_time, waveform_start)
+                        end_offset_time = get_end_offset_time(dispo_time, waveform_end)
+
                         start_offset = get_waveform_offset(waveform_start, start_offset_time,
                                                            sample_rate=info_obj[wave_type]["sample_rate"])
                         end_offset = get_waveform_offset(waveform_start, end_offset_time,
@@ -533,7 +686,8 @@ def process_study(input_args):
                             "end_offset": end_offset,  # this is where we want to trim to
                             "end_offset_time": end_offset_time,
                             "filename": filename,
-                            "info": info_obj
+                            "info": info_obj,
+                            "time_jumps": [] # these are any points in the waveform where a time jump occurred
                         })
                         if DEBUG:
                             print(
@@ -555,11 +709,12 @@ def process_study(input_args):
         waveform_type_to_waveform = {}
         waveform_type_to_times = {}
         for w, metadata_list in waveform_to_metadata.items():
-            final_waveform, waveform_start_time, waveform_end_time = join_waveforms(patient_id, metadata_list, w)
+            final_waveform, waveform_start_time, waveform_end_time, time_jumps = join_waveforms(patient_id, metadata_list, w, set(waveform_to_metadata.keys()))
             waveform_type_to_waveform[w] = final_waveform
             waveform_type_to_times[w] = {
                 "start": waveform_start_time,
-                "end": waveform_end_time
+                "end": waveform_end_time,
+                "time_jumps": time_jumps
             }
 
         data_length_sec = 0
@@ -603,8 +758,11 @@ def process_study(input_args):
                     dset.create_dataset(k, data=numerics[k])
 
             dset = f.create_group("waveforms")
+            dset_time_jumps = f.create_group("waveforms_time_jumps")
             for w, waveform in waveform_type_to_waveform.items():
                 dset.create_dataset(w, data=waveform)
+                dset_time_jumps.create_dataset(w, data=format_time_jumps(waveform_type_to_times[w]["time_jumps"]))
+
 
         # Return patient summary
         #
