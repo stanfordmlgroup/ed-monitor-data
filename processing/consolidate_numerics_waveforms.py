@@ -668,21 +668,26 @@ def process_study(input_args):
                                                            sample_rate=info_obj[wave_type]["sample_rate"])
                         end_offset = get_waveform_offset(waveform_start, end_offset_time,
                                                          sample_rate=info_obj[wave_type]["sample_rate"])
-                        filename = os.path.join(study_path, f"{prefix}.{wave_type}.dat")
-                        if wave_type not in waveform_to_metadata:
-                            waveform_to_metadata[wave_type] = []
-                        waveform_to_metadata[wave_type].append({
-                            "start_offset": start_offset,  # this is where we want to trim from
-                            "start_offset_time": start_offset_time,
-                            "end_offset": end_offset,  # this is where we want to trim to
-                            "end_offset_time": end_offset_time,
-                            "filename": filename,
-                            "info": info_obj,
-                            "time_jumps": [] # these are any points in the waveform where a time jump occurred
-                        })
-                        if DEBUG:
-                            print(
-                                f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {filename} start={start_offset} end={end_offset} start_offset_time={str(start_offset_time)} end_offset_time={str(end_offset_time)}")
+
+                        if start_offset < end_offset:
+                            filename = os.path.join(study_path, f"{prefix}.{wave_type}.dat")
+                            if wave_type not in waveform_to_metadata:
+                                waveform_to_metadata[wave_type] = []
+                            waveform_to_metadata[wave_type].append({
+                                "start_offset": start_offset,  # this is where we want to trim from
+                                "start_offset_time": start_offset_time,
+                                "end_offset": end_offset,  # this is where we want to trim to
+                                "end_offset_time": end_offset_time,
+                                "filename": filename,
+                                "info": info_obj,
+                                "time_jumps": [] # these are any points in the waveform where a time jump occurred
+                            })
+                            if DEBUG:
+                                print(
+                                    f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform {filename} start={start_offset} end={end_offset} start_offset_time={str(start_offset_time)} end_offset_time={str(end_offset_time)}")
+                        else:
+                            if DEBUG:
+                                print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Waveform start={start_offset} is AFTER end={end_offset} ")
 
         notes = ""
         if len(waveform_to_metadata) == 0:
