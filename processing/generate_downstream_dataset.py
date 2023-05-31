@@ -15,6 +15,8 @@ import argparse
 import csv
 from concurrent import futures
 from datetime import datetime, timedelta
+from decimal import Decimal
+
 from dateutil import parser as dt_parser
 import traceback
 
@@ -42,12 +44,39 @@ TARGET_FREQ = {
 VERBOSE = False
 
 
-def get_waveform_offsets(start_time, current_time, freq):
+def get_waveform_offsets(start_time, current_time, freq, time_jumps):
     """
-    Returns the offset in the waveform for the query time
+    Returns the offset in the waveform for the query time, taking into
+    account the time_jumps that have occurred
     """
-    start = ((current_time - start_time).total_seconds()) * freq
-    return max(int(start), 0)
+
+    # Find the latest time jump that is before the current_time.
+    # Compute the number of seconds since the latest time jump
+    current_time_to_time_jump_interval = None
+    current_time_to_time_jump_time = None
+    current_time_to_time_jump_pos = None
+    for tj in time_jumps:
+        # tj = ((pos_1, time_1), (pos_2, time_2))
+        # Case #1: After gap
+        # ---| |---
+        #        | <- current_time
+        # Case #2: Before gap
+        # ---| |---
+        #  |
+        # Case #3: In between gap
+        # ---| |---
+        #     |
+        interval_to_time_jump = Decimal(str(round(current_time.timestamp(), 3))) - Decimal(str(round(tj[1][1], 3)))
+        if interval_to_time_jump >= 0 and (current_time_to_time_jump_time is None or interval_to_time_jump < current_time_to_time_jump_interval):
+            current_time_to_time_jump_time = Decimal(str(round(tj[1][1], 3)))
+            current_time_to_time_jump_pos = int(tj[1][0])
+            current_time_to_time_jump_interval = interval_to_time_jump
+
+    if current_time_to_time_jump_pos is None:
+        start = ((current_time - start_time).total_seconds()) * freq
+    else:
+        start = (Decimal(str(round(current_time.timestamp(), 3))) - current_time_to_time_jump_time) * freq + current_time_to_time_jump_pos
+    return int(start)
 
 
 def get_numerics_averaged_by_second(numerics_obj, start_epoch, end_epoch, average_window_sec=60):
@@ -123,6 +152,23 @@ def get_numerics_averaged_by_second(numerics_obj, start_epoch, end_epoch, averag
     return output
 
 
+def get_time_jump_window(f, waveform_type, start, seg_len):
+    """
+    Returns the time jump window, including the next position and next time stamp.
+    Returns None, None if no timejump is applicable
+    """
+    if "waveforms_time_jumps" not in f:
+        return None, None
+    waveform_time_jumps = f["waveforms_time_jumps"][waveform_type]
+    for tj in waveform_time_jumps:
+        # tj = ((prev pos, prev time), (next pos, next time))
+        next_pos = tj[1][0]
+        next_time = tj[1][1]
+        if start <= next_pos < (start + seg_len):
+            return next_pos, next_time
+    return None, None
+
+
 def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec, stride_length_sec=10, csn=None):
     type_to_waveform = {}
 
@@ -147,6 +193,10 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
         local_waveforms = []
         local_qualities = []
 
+        # Time jump flag - if set to true, we must move the sliding window over to the next time jump slot
+        time_jumped = False
+        time_jump_start_time = None
+
         # Get waveforms for current window
         for waveform_type in WAVEFORM_COLUMNS:
             waveform_config = WAVEFORMS_OF_INTERST[waveform_type]
@@ -154,8 +204,18 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
             if waveform_type not in f["waveforms"]:
                 raise Exception(f"Waveform {waveform_type} not available")
             waveform_base = f["waveforms"][waveform_type]
-            start = get_waveform_offsets(start_time, current_time, waveform_config["orig_frequency"])
+            waveforms_time_jumps = f["waveforms_time_jumps"][waveform_type] if "waveforms_time_jumps" in f else []
+
+            start = get_waveform_offsets(start_time, current_time, waveform_config["orig_frequency"], waveforms_time_jumps)
             seg_len = int(waveform_len_sec * waveform_config["orig_frequency"])
+
+            time_jump_next_pos, time_jump_next_time = get_time_jump_window(f, waveform_type, start, seg_len)
+            if time_jump_next_pos is not None:
+                # A time jump occurred, so we must move the sliding window
+                time_jumped = True
+                time_jump_start_time = time_jump_next_time
+                break
+
             if len(waveform_base[start:(start + seg_len)]) < seg_len:
                 # If the waveform is not of expected size, there is no point continuing
                 raise Exception(f"Waveform {waveform_type} not usable")
@@ -178,9 +238,14 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
             local_waveforms.append(waveform)
             local_qualities.append(quality)
 
+        if time_jumped:
+            # We must forcibly move the sliding window to the next time jump point
+            print(f"[{datetime.now().isoformat()}] [{csn}] Time jump occurred")
+            current_time = datetime.fromtimestamp(time_jump_start_time)
+            continue
         # Ensure quality is met for all waveforms
         #
-        if sum(local_qualities) == len(WAVEFORM_COLUMNS):
+        elif sum(local_qualities) == len(WAVEFORM_COLUMNS):
             # Great, we have found an acceptable waveform
             best_waveforms = local_waveforms
             best_qualities = local_qualities
