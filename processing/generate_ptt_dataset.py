@@ -34,6 +34,10 @@ def get_waveform_offsets(start_time, current_time, freq, time_jumps):
     """
     Returns the offset in the waveform for the query time, taking into
     account the time_jumps that have occurred
+    :param start_time: The datetime representing when the waveform started
+    :param current_time: The datetime representing the current timepoint in the waveform we want to get offset for
+    :param freq: The frequency of the waveform
+    :param time_jumps: An array of time jumps that occurred in the waveform
     """
 
     # Find the latest time jump that is before the current_time.
@@ -42,14 +46,27 @@ def get_waveform_offsets(start_time, current_time, freq, time_jumps):
     current_time_to_time_jump_time = None
     current_time_to_time_jump_pos = None
     for tj in time_jumps:
-        # tj = ((pos_1, time_1), (pos_2, time_2))
-        # Case #1: After gap
+        # ----|    |---
+        #     ^    ^
+        # pos_1    pos_2
+        #
+        # tj = (
+        #   (pos_1, time_1),
+        #   (pos_2, time_2)
+        # )
+        #
+        # Case #1: current_time is after pos_2
+        # (the waveform offset would be based on the difference between current_time and pos_2)
         # ---| |---
         #        | <- current_time
-        # Case #2: Before gap
+        #
+        # Case #2: current_time is before pos_1
+        # (the waveform offset would be based on the difference between current_time and start_time
+        # since no time jumps were relevant in this case)
         # ---| |---
         #  |
-        # Case #3: In between gap
+        # Case #3: current_time is in between pos_1 and pos_2
+        # (not possible, since the code would have jumped ahead to the pos_2)
         # ---| |---
         #     |
         interval_to_time_jump = Decimal(str(round(current_time.timestamp(), 3))) - Decimal(str(round(tj[1][1], 3)))
@@ -66,6 +83,11 @@ def get_waveform_offsets(start_time, current_time, freq, time_jumps):
 
 
 def assert_waveform_validity(waveform_base, waveform_type):
+    """
+    Assert that waveform_base is non-empty and is not flat-lined
+    :param waveform_base: The waveform
+    :param waveform_type: The type of waveform
+    """
     if len(waveform_base) == 0 or (waveform_base == waveform_base[0]).all():
         # The waveform is just empty so skip this patient
         raise Exception(f"Waveform {waveform_type} is empty or flat-line")
@@ -73,8 +95,13 @@ def assert_waveform_validity(waveform_base, waveform_type):
 
 def get_time_jump_window(waveform_time_jumps, waveform_type, start, seg_len):
     """
-    Returns the time jump window, including the next position and next time stamp.
-    Returns None, None if no timejump is applicable
+    Returns a tuple of the next position and next time stamp of any time jumps that the current window overlaps with.
+    Returns None, None if no time jump is applicable
+
+    :param waveform_time_jumps: Any time jumps that occurred in the waveform
+    :param waveform_type: The type of waveform (e.g. II)
+    :param start: The start offset of the current window
+    :param seg_len: The length of the window
     """
     for tj in waveform_time_jumps[waveform_type]:
         # tj = ((prev pos, prev time), (next pos, next time))
@@ -87,6 +114,19 @@ def get_time_jump_window(waveform_time_jumps, waveform_type, start, seg_len):
 
 def get_ptt_for_patient(ii, pleth, start_time, start_trim_sec, end_time, waveform_len_sec,
                         waveforms_time_jumps, stride_length_sec=10, csn=None):
+    """
+    Returns a tuple of the pulse-transit-times (PTT) and the times corresponding to the PTTs.
+    PTTs are calculated using a sliding window along the entire waveform.
+
+    :param ii: The lead-II ECG array at 500 Hz for the entire patient stay
+    :param pleth: The PPG array at 125 Hz for the entire patient stay
+    :param start_time: The datetime object representing the start time of the waveform
+    :param start_trim_sec: The recommended trim in seconds (anything before this is invalid values)
+    :param end_time: The datetime object representing the end time of the waveform
+    :param waveform_len_sec: The length of the waveform in seconds
+    :param waveforms_time_jumps: Any time jumps in the waveform itself
+    :param stride_length_sec: The number of seconds to slide when sliding the window
+    """
 
     # We start looking for waveforms from the left, trying to find the first good waveform
     #
@@ -134,6 +174,9 @@ def get_ptt_for_patient(ii, pleth, start_time, start_trim_sec, end_time, wavefor
 
 
 def process_patient(input_args):
+    """
+    Processes the PTTs for a single patient visit.
+    """
     i, df, csn, waveform_start, input_folder, output_file = input_args
 
     filename = f"{input_folder}/{str(csn)[-2:]}/{csn}.h5"
@@ -167,6 +210,9 @@ def process_patient(input_args):
 
 
 def run(input_folder, input_file, output_file, limit):
+    """
+    Runs the script given the parameters
+    """
     df = pd.read_csv(input_file)
 
     fs = {}
