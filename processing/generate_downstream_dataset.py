@@ -164,7 +164,7 @@ def get_time_jump_window(f, waveform_type, start, seg_len):
         # tj = ((prev pos, prev time), (next pos, next time))
         next_pos = tj[1][0]
         next_time = tj[1][1]
-        if start <= next_pos < (start + seg_len):
+        if start < next_pos < (start + seg_len):
             return next_pos, next_time
     return None, None
 
@@ -241,7 +241,7 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
         if time_jumped:
             # We must forcibly move the sliding window to the next time jump point
             print(f"[{datetime.now().isoformat()}] [{csn}] Time jump occurred")
-            current_time = datetime.fromtimestamp(time_jump_start_time)
+            current_time = datetime.fromtimestamp(time_jump_start_time, tz=current_time.tzinfo)
             continue
         # Ensure quality is met for all waveforms
         #
