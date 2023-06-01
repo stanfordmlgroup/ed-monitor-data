@@ -354,9 +354,9 @@ def process_patient(input_args):
 
             end_time = alignment_time + timedelta(seconds=(post_minutes_min * 60))
 
-            start_time_epoch = int(start_time.timestamp())
-            alignment_time_epoch = int(alignment_time.timestamp())
-            end_time_epoch = int(end_time.timestamp())
+            start_time_epoch = start_time.timestamp()
+            alignment_time_epoch = alignment_time.timestamp()
+            end_time_epoch = end_time.timestamp()
 
             print(f"[{datetime.now().isoformat()}] [{csn}] Getting best waveforms...")
 
