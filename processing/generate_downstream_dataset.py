@@ -288,7 +288,7 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
 def get_min_numerics_time(numerics_obj, roomed_time):
     min_time = None
     for col in NUMERIC_COLUMNS:
-        if len(numerics_obj[f"{col}-time"]) > 0:
+        if f"{col}-time" in numerics_obj and len(numerics_obj[f"{col}-time"]) > 0:
             if min_time is None or numerics_obj[f"{col}-time"][0] < min_time:
                 min_time = numerics_obj[f"{col}-time"][0]
     if min_time is None:
