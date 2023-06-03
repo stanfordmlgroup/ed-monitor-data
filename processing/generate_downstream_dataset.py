@@ -285,8 +285,20 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
     return type_to_waveform
 
 
+def get_min_numerics_time(numerics_obj, roomed_time):
+    min_time = None
+    for col in NUMERIC_COLUMNS:
+        if len(numerics_obj[f"{col}-time"]) > 0:
+            if min_time is None or numerics_obj[f"{col}-time"][0] < min_time:
+                min_time = numerics_obj[f"{col}-time"][0]
+    if min_time is None:
+        raise Exception("The patient did not have any numerics!")
+    else:
+        return datetime.fromtimestamp(min_time, tz=roomed_time.tzinfo)
+
+
 def process_patient(input_args):
-    i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col = input_args
+    i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type = input_args
 
     filename = f"{input_folder}/{str(csn)[-2:]}/{csn}.h5"
     print(f"[{datetime.now().isoformat()}] [{i}/{df.shape[0]}] Working on patient {csn} at {filename}")
@@ -319,23 +331,43 @@ def process_patient(input_args):
         with h5py.File(filename, "r") as f:
             row = df[df["patient_id"] == csn]
 
-            waveform_start = row["waveform_start_time"].item()
-            try:
-                waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S%z')
-            except ValueError:
-                waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S.%f%z')
+            roomed_time = row["roomed_time"].item()
+            roomed_time = datetime.strptime(roomed_time, '%Y-%m-%d %H:%M:%S%z')
+
             if align_col is not None and not pd.isna(row[align_col].item()):
                 max_alignment_time = row[align_col].item()
-                max_alignment_time = dt_parser.parse(max_alignment_time).replace(tzinfo=waveform_start.tzinfo)
+                max_alignment_time = dt_parser.parse(max_alignment_time).replace(tzinfo=roomed_time.tzinfo)
             else:
                 max_alignment_time = None
 
-            recommended_trim_start_sec = int(row["recommended_trim_start_sec"].item())
+            if align_type == "waveform":
+                # start_time is when the waveform monitoring starts (note that anything before the
+                # recommended trim was an empty array, even though it might have technically been
+                # part of the patient's visit)
 
-            # start_time is when the waveform monitoring starts (note that anything before the
-            # recommended trim was an empty array, even though it might have technically been
-            # part of the patient's visit)
-            start_time = waveform_start + timedelta(seconds=(recommended_trim_start_sec))
+                waveform_start = row["waveform_start_time"].item()
+                waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S.%f%z')
+                recommended_trim_start_sec = int(row["recommended_trim_start_sec"].item())
+                start_time = waveform_start + timedelta(seconds=(recommended_trim_start_sec))
+            elif align_type == "waveform_optional" or align_type == "numerics":
+                has_required_waveforms = row["II_available"].item() == 1 and row["Pleth_available"].item() == 1
+                has_usable_waveforms = row["recommended_trim_start_sec"].item() != 0 or row["recommended_trim_end_sec"].item() != 0
+                if has_required_waveforms and has_usable_waveforms:
+                    waveform_start = row["waveform_start_time"].item()
+                    waveform_start = datetime.strptime(waveform_start, '%Y-%m-%d %H:%M:%S.%f%z')
+                    recommended_trim_start_sec = int(row["recommended_trim_start_sec"].item())
+                else:
+                    waveform_start = None
+                    recommended_trim_start_sec = None
+
+                if align_type == "waveform_optional" and waveform_start is not None:
+                    start_time = waveform_start + timedelta(seconds=(recommended_trim_start_sec))
+                else:
+                    # start time forced to be the numerics start
+                    start_time = get_min_numerics_time(f["numerics"], roomed_time)
+            else:
+                raise Exception(f"Unknown align_type={align_type} provided")
+
             alignment_time = start_time + timedelta(seconds=(pre_minutes_min * 60))
 
             if max_alignment_time is not None:
@@ -369,7 +401,16 @@ def process_patient(input_args):
             try:
                 type_to_waveform_obj = get_best_waveforms(f, waveform_start, recommended_trim_start_sec, alignment_time, waveform_length_sec, csn=csn)
             except Exception as ec:
-                raise Exception(f"Patient did not have any usable waveforms. Technical: {ec}")
+                if align_type == "waveform":
+                    raise Exception(f"Patient did not have any usable waveforms. Technical: {ec}")
+                else:
+                    # Waveforms are optional for other alignment types
+                    type_to_waveform_obj = {}
+                    for waveform_type in WAVEFORM_COLUMNS:
+                        type_to_waveform_obj[waveform_type] = {
+                            "waveform": np.full(TARGET_FREQ[waveform_type] * waveform_length_sec, np.NaN),
+                            "quality": 0
+                        }
 
             numerics_map_before = get_numerics_averaged_by_second(f["numerics"], start_time_epoch, alignment_time_epoch, pre_granularity_sec)
             for col in NUMERIC_COLUMNS:
@@ -403,7 +444,7 @@ def process_patient(input_args):
 
 def run(input_folder, input_file, output_data_file, output_summary_file,
         waveform_length_sec, pre_minutes_min, post_minutes_min,
-        pre_granularity_sec, post_granularity_sec, align_col, limit):
+        pre_granularity_sec, post_granularity_sec, align_col, align_type, limit):
     df = pd.read_csv(input_file)
     patients = df["patient_id"].tolist()
 
@@ -437,7 +478,7 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             if limit is not None and i > limit:
                 break
 
-            input_args = [i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col]
+            input_args = [i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type]
             future = executor.submit(process_patient, input_args)
             fs.append(future)
 
@@ -539,6 +580,12 @@ if __name__ == '__main__':
     parser.add_argument('-a', '--align',
                         default=None,
                         help='Specify a column to use as the maximum alignment column. e.g. we might want to collect as much numerics before the first blood draw time')
+    parser.add_argument('-at', '--align-type',
+                        default='waveform',
+                        help='Specifies the type of alignment. If "waveform", then alignment is relative to the start of the waveform recording and waveforms are required. '
+                             + 'If "waveform_optional", then alignment is relative to the start of the waveform recording if possible, otherwise, relative to the start of the numerics. '
+                             + 'If "numerics", then alignment is relative to the start of the numerics'
+                        )
 
     args = parser.parse_args()
 
@@ -563,6 +610,7 @@ if __name__ == '__main__':
     limit = int(args.max_patients) if args.max_patients is not None else None
 
     align_col = args.align
+    align_type = args.align_type
 
     print("=" * 30)
     print(
@@ -570,10 +618,10 @@ if __name__ == '__main__':
     print(
         f"waveform_length_sec={waveform_length_sec}, pre_minutes_min={pre_minutes_min}, post_minutes_min={post_minutes_min}")
     print(
-        f"pre_granularity_sec={pre_granularity_sec}, post_granularity_sec={post_granularity_sec}")
+        f"pre_granularity_sec={pre_granularity_sec}, post_granularity_sec={post_granularity_sec}, align_type={align_type}")
     print("-" * 30)
 
     run(input_dir, input_file, output_data_file, output_summary_file, waveform_length_sec, pre_minutes_min,
-        post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, limit)
+        post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type, limit)
 
     print("DONE")
