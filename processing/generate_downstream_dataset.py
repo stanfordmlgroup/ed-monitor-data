@@ -325,21 +325,22 @@ def get_representative_waveform(f, start_time, start_trim_sec, end_time, wavefor
                 # If the waveform is not of expected size
                 type_to_waveform[waveform_type]["waveform"].append(np.full(125 * waveform_length_sec, np.NaN))
                 type_to_waveform[waveform_type]["quality"].append(0)
-            try:
-                waveform, quality = get_waveform(waveform_base, start, seg_len,
-                                                 waveform_config["orig_frequency"],
-                                                 should_normalize=False,
-                                                 bandpass_type=waveform_config["bandpass_type"],
-                                                 bandwidth=waveform_config["bandpass_freq"],
-                                                 target_fs=125,
-                                                 waveform_type=waveform_type,
-                                                 skewness_max=0.87,
-                                                 msq_min=0.27)
-                type_to_waveform[waveform_type]["waveform"].append(waveform)
-                type_to_waveform[waveform_type]["quality"].append(quality)
-            except Exception as et:
-                type_to_waveform[waveform_type]["waveform"].append(np.full(125 * waveform_length_sec, np.NaN))
-                type_to_waveform[waveform_type]["quality"].append(0)
+            else:
+                try:
+                    waveform, quality = get_waveform(waveform_base, start, seg_len,
+                                                     waveform_config["orig_frequency"],
+                                                     should_normalize=False,
+                                                     bandpass_type=waveform_config["bandpass_type"],
+                                                     bandwidth=waveform_config["bandpass_freq"],
+                                                     target_fs=125,
+                                                     waveform_type=waveform_type,
+                                                     skewness_max=0.87,
+                                                     msq_min=0.27)
+                    type_to_waveform[waveform_type]["waveform"].append(waveform)
+                    type_to_waveform[waveform_type]["quality"].append(quality)
+                except Exception as et:
+                    type_to_waveform[waveform_type]["waveform"].append(np.full(125 * waveform_length_sec, np.NaN))
+                    type_to_waveform[waveform_type]["quality"].append(0)
             type_to_waveform[waveform_type]["time"].append(current_time.timestamp())
 
     return type_to_waveform
