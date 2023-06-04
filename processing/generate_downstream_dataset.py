@@ -285,6 +285,66 @@ def get_best_waveforms(f, start_time, start_trim_sec, end_time, waveform_len_sec
     return type_to_waveform
 
 
+def get_representative_waveform(f, start_time, start_trim_sec, end_time, waveform_len_sec,
+                                proportions=[0, 0.25, 0.5, 0.75], csn=None):
+    type_to_waveform = {}
+
+    # Sanity check that the waveforms are all actually present and not just empty array (saves time)
+    for waveform_type in WAVEFORM_COLUMNS:
+        waveform_base = np.array(f["waveforms"][waveform_type])
+        if len(waveform_base) == 0 or (waveform_base == waveform_base[0]).all():
+            # The waveform is just empty so skip this patient
+            raise Exception(f"Waveform {waveform_type} is empty or flat-line")
+
+        type_to_waveform[waveform_type] = {
+            "waveform": [],
+            "quality": [],
+            "time": []
+        }
+
+    base_time = start_time + timedelta(seconds=(start_trim_sec))
+    if (end_time - base_time).total_seconds() < waveform_len_sec:
+        raise Exception(f"Waveform start/end is not long enough")
+
+    for proportion in proportions:
+        diff = (end_time - base_time).total_seconds()
+        current_time = base_time + timedelta(seconds=int(proportion * diff))
+        for waveform_type in WAVEFORM_COLUMNS:
+            waveform_config = WAVEFORMS_OF_INTERST[waveform_type]
+
+            if waveform_type not in f["waveforms"]:
+                raise Exception(f"Waveform {waveform_type} not available")
+            waveform_base = f["waveforms"][waveform_type]
+            waveforms_time_jumps = f["waveforms_time_jumps"][waveform_type] if "waveforms_time_jumps" in f else []
+
+            start = get_waveform_offsets(start_time, current_time, waveform_config["orig_frequency"],
+                                         waveforms_time_jumps)
+            seg_len = int(waveform_len_sec * waveform_config["orig_frequency"])
+
+            if len(waveform_base[start:(start + seg_len)]) < seg_len:
+                # If the waveform is not of expected size
+                type_to_waveform[waveform_type]["waveform"].append(np.full(125 * waveform_length_sec, np.NaN))
+                type_to_waveform[waveform_type]["quality"].append(0)
+            try:
+                waveform, quality = get_waveform(waveform_base, start, seg_len,
+                                                 waveform_config["orig_frequency"],
+                                                 should_normalize=False,
+                                                 bandpass_type=waveform_config["bandpass_type"],
+                                                 bandwidth=waveform_config["bandpass_freq"],
+                                                 target_fs=125,
+                                                 waveform_type=waveform_type,
+                                                 skewness_max=0.87,
+                                                 msq_min=0.27)
+                type_to_waveform[waveform_type]["waveform"].append(waveform)
+                type_to_waveform[waveform_type]["quality"].append(quality)
+            except Exception as et:
+                type_to_waveform[waveform_type]["waveform"].append(np.full(125 * waveform_length_sec, np.NaN))
+                type_to_waveform[waveform_type]["quality"].append(0)
+            type_to_waveform[waveform_type]["time"].append(current_time.timestamp())
+
+    return type_to_waveform
+
+
 def get_min_numerics_time(numerics_obj, roomed_time):
     min_time = None
     for col in NUMERIC_COLUMNS:
@@ -298,7 +358,7 @@ def get_min_numerics_time(numerics_obj, roomed_time):
 
 
 def process_patient(input_args):
-    i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type = input_args
+    i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type, waveform_extraction_type = input_args
 
     filename = f"{input_folder}/{str(csn)[-2:]}/{csn}.h5"
     print(f"[{datetime.now().isoformat()}] [{i}/{df.shape[0]}] Working on patient {csn} at {filename}")
@@ -327,6 +387,8 @@ def process_patient(input_args):
                 "waveforms": [],
                 "qualities": [],
             }
+            if waveform_extraction_type == "representative_entire_visit":
+                output["waveforms"][col]["times"] = []
 
         with h5py.File(filename, "r") as f:
             row = df[df["patient_id"] == csn]
@@ -399,7 +461,12 @@ def process_patient(input_args):
                 print(f"end_time = {end_time}")
 
             try:
-                type_to_waveform_obj = get_best_waveforms(f, waveform_start, recommended_trim_start_sec, alignment_time, waveform_length_sec, csn=csn)
+                if waveform_extraction_type == "best":
+                    type_to_waveform_obj = get_best_waveforms(f, waveform_start, recommended_trim_start_sec, alignment_time, waveform_length_sec, csn=csn)
+                elif waveform_extraction_type == "representative_entire_visit":
+                    type_to_waveform_obj = get_representative_waveform(f, waveform_start, recommended_trim_start_sec, alignment_time, waveform_length_sec, csn=csn)
+                else:
+                    raise Exception(f"Incorrect waveform_extraction_type={waveform_extraction_type} specified")
             except Exception as ec:
                 if align_type == "waveform":
                     raise Exception(f"Patient did not have any usable waveforms. Technical: {ec}")
@@ -430,6 +497,9 @@ def process_patient(input_args):
             for waveform_type in WAVEFORM_COLUMNS:
                 output["waveforms"][waveform_type]["waveforms"].append(type_to_waveform_obj[waveform_type]["waveform"])
                 output["waveforms"][waveform_type]["qualities"].append(type_to_waveform_obj[waveform_type]["quality"])
+                if waveform_extraction_type == "representative_entire_visit":
+                    output["waveforms"][waveform_type]["times"].append(
+                        type_to_waveform_obj[waveform_type]["time"])
 
         output_str = f"[{datetime.now().isoformat()}] [{i}/{df.shape[0]}]   [{csn}] "
         for k in WAVEFORM_COLUMNS:
@@ -444,7 +514,7 @@ def process_patient(input_args):
 
 def run(input_folder, input_file, output_data_file, output_summary_file,
         waveform_length_sec, pre_minutes_min, post_minutes_min,
-        pre_granularity_sec, post_granularity_sec, align_col, align_type, limit):
+        pre_granularity_sec, post_granularity_sec, align_col, align_type, waveform_extraction_type, limit):
     df = pd.read_csv(input_file)
     patients = df["patient_id"].tolist()
 
@@ -469,6 +539,8 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             "waveforms": [],
             "qualities": [],
         }
+        if waveform_extraction_type == "representative_entire_visit":
+            waveforms[col]["times"] = []
 
     fs = []
     with futures.ThreadPoolExecutor(32) as executor:
@@ -478,7 +550,7 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             if limit is not None and i > limit:
                 break
 
-            input_args = [i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type]
+            input_args = [i, df, csn, input_folder, waveform_length_sec, pre_minutes_min, post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type, waveform_extraction_type]
             future = executor.submit(process_patient, input_args)
             fs.append(future)
 
@@ -499,6 +571,8 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             for col in WAVEFORM_COLUMNS:
                 waveforms[col]["waveforms"].extend(result["waveforms"][col]["waveforms"])
                 waveforms[col]["qualities"].extend(result["waveforms"][col]["qualities"])
+                if waveform_extraction_type == "representative_entire_visit":
+                    waveforms[col]["times"].extend(result["waveforms"][col]["times"])
 
     with h5py.File(output_data_file, "w") as f:
         f.create_dataset("alignment_times", data=alignment_times)
@@ -517,6 +591,8 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             dset_k = dset.create_group(k)
             dset_k.create_dataset("waveforms", data=waveforms[k]["waveforms"])
             dset_k.create_dataset("qualities", data=waveforms[k]["qualities"])
+            if waveform_extraction_type == "representative_entire_visit":
+                dset_k.create_dataset("times", data=waveforms[k]["times"])
 
     with open(output_summary_file, "w") as f:
         writer = csv.writer(f, delimiter=',', quotechar='"')
@@ -526,7 +602,11 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
             headers.append(f"{k}_after_length")
         for k in WAVEFORM_COLUMNS:
             headers.append(f"{k}_length")
-            headers.append(f"{k}_quality")
+            if waveform_extraction_type == "best":
+                headers.append(f"{k}_quality")
+            else:
+                for idx in range(4):
+                    headers.append(f"{k}_quality_{idx}")
         writer.writerow(headers)
 
         i = 0
@@ -539,8 +619,13 @@ def run(input_folder, input_file, output_data_file, output_summary_file,
                 else:
                     row.append("")
             for k in WAVEFORM_COLUMNS:
-                row.append(len(waveforms[k]["waveforms"][i]))
-                row.append(waveforms[k]["qualities"][i])
+                if waveform_extraction_type == "best":
+                    row.append(len(waveforms[k]["waveforms"][i]))
+                    row.append(waveforms[k]["qualities"][i])
+                else:
+                    row.append(len(waveforms[k]["waveforms"][i][0]))
+                    for idx in range(len(waveforms[k]["qualities"][i])):
+                        row.append(waveforms[k]["qualities"][i][idx])
             writer.writerow(row)
             i += 1
 
@@ -586,6 +671,11 @@ if __name__ == '__main__':
                              + 'If "waveform_optional", then alignment is relative to the start of the waveform recording if possible, otherwise, relative to the start of the numerics. '
                              + 'If "numerics", then alignment is relative to the start of the numerics'
                         )
+    parser.add_argument('-wet', '--waveform-extraction-type',
+                        default='best',
+                        help='Specifies how to extract the waveforms. If "best", then the best waveform during the pre-minutes interval is extracted. '
+                             + 'If "representative_entire_visit", then the waveforms at 0, 0.25, 0.5, 0.75 timepoints throughout the waveform monitoring period are extracted, regardless of quality. '
+                        )
 
     args = parser.parse_args()
 
@@ -611,6 +701,7 @@ if __name__ == '__main__':
 
     align_col = args.align
     align_type = args.align_type
+    waveform_extraction_type = args.waveform_extraction_type
 
     print("=" * 30)
     print(
@@ -618,10 +709,10 @@ if __name__ == '__main__':
     print(
         f"waveform_length_sec={waveform_length_sec}, pre_minutes_min={pre_minutes_min}, post_minutes_min={post_minutes_min}")
     print(
-        f"pre_granularity_sec={pre_granularity_sec}, post_granularity_sec={post_granularity_sec}, align_type={align_type}")
+        f"pre_granularity_sec={pre_granularity_sec}, post_granularity_sec={post_granularity_sec}, align_type={align_type}, waveform_extraction_type={waveform_extraction_type}")
     print("-" * 30)
 
     run(input_dir, input_file, output_data_file, output_summary_file, waveform_length_sec, pre_minutes_min,
-        post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type, limit)
+        post_minutes_min, pre_granularity_sec, post_granularity_sec, align_col, align_type, waveform_extraction_type, limit)
 
     print("DONE")
