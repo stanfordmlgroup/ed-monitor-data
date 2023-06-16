@@ -12,8 +12,8 @@ import pytz
 import matplotlib.pyplot as plt
 
 from processing.consolidate_numerics_waveforms import load_numerics_file, process_numerics_file, \
-    process_study, make_waveform_lengths_consistent, NULL_WAVEFORM_VALUE, get_skip_waveform_seconds, \
-    get_overlap_interval, handle_waveform_overlap_and_gap, get_start_offset_time, get_end_offset_time
+    process_study, NULL_WAVEFORM_VALUE, get_skip_waveform_seconds, \
+    get_overlap_interval, handle_waveform_overlap_and_gap, get_start_offset_time, get_end_offset_time, Decimal
 
 import h5py
 import pandas as pd
@@ -35,10 +35,10 @@ class TestConsolidate(unittest.TestCase):
         self.assertEqual(31132, output_files[0].shape[0])
 
     def test_get_overlap_interval(self):
-        self.assertEqual(0.008, get_overlap_interval(set(["II", "Pleth"])))
-        self.assertEqual(0.016, get_overlap_interval(set(["II", "Pleth", "Resp"])))
-        self.assertEqual(0.008, get_overlap_interval(set(["Pleth"])))
-        self.assertEqual(0.002, get_overlap_interval(set(["II"])))
+        self.assertEqual(Decimal('0.008'), get_overlap_interval(set(["II", "Pleth"])))
+        self.assertEqual(Decimal('0.016'), get_overlap_interval(set(["II", "Pleth", "Resp"])))
+        self.assertEqual(Decimal('0.008'), get_overlap_interval(set(["Pleth"])))
+        self.assertEqual(Decimal('0.002'), get_overlap_interval(set(["II"])))
         self.assertRaises(Exception, lambda x: get_overlap_interval(set()))
 
     def test_get_start_offset_time(self):
@@ -221,154 +221,6 @@ class TestConsolidate(unittest.TestCase):
         self.assertEqual(71.0, output_vals["HR"][0])
         self.assertEqual(SAMPLE_PATIENT_ID, patient_id)
 
-    def test_make_waveform_lengths_consistent(self):
-        waveform_to_metadata = {
-            "II": {
-            },
-            "Pleth": {
-            }
-        }
-
-        # II   :      ---
-        # Pleth: ---
-        waveform_type_to_times = {
-            "II": {
-                "start": self.localize_iso_time("2000-10-21T13:40:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:45:00Z")
-            },
-            "Pleth": {
-                "start": self.localize_iso_time("2000-10-21T13:30:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:35:00Z")
-            }
-        }
-        waveform_type_to_waveform = {
-            "II": np.ones(500 * 5 * 60),
-            "Pleth": np.ones(125 * 5 * 60)
-        }
-        make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
-        self.assertEqual(500 * 5 * 60, len(waveform_type_to_waveform["II"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["II"] == 1))
-        self.assertEqual(125 * 5 * 60, len(waveform_type_to_waveform["Pleth"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"] == NULL_WAVEFORM_VALUE))
-
-
-        # II   :    ---
-        # Pleth:  ---
-        waveform_type_to_times = {
-            "II": {
-                "start": self.localize_iso_time("2000-10-21T13:40:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:45:00Z")
-            },
-            "Pleth": {
-                "start": self.localize_iso_time("2000-10-21T13:36:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:41:00Z")
-            }
-        }
-        waveform_type_to_waveform = {
-            "II": np.ones(500 * 5 * 60),
-            "Pleth": np.ones(125 * 5 * 60)
-        }
-        make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
-        self.assertEqual(500 * 5 * 60, len(waveform_type_to_waveform["II"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["II"] == 1))
-        self.assertEqual(125 * 5 * 60, len(waveform_type_to_waveform["Pleth"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"][:125 * 1 * 60] == 1))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"][125 * 1 * 60:] == NULL_WAVEFORM_VALUE))
-
-
-        # II   : ------
-        # Pleth:   ---
-        waveform_type_to_times = {
-            "II": {
-                "start": self.localize_iso_time("2000-10-21T13:40:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:45:00Z")
-            },
-            "Pleth": {
-                "start": self.localize_iso_time("2000-10-21T13:41:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:44:00Z")
-            }
-        }
-        waveform_type_to_waveform = {
-            "II": np.ones(500 * 5 * 60),
-            "Pleth": np.ones(125 * 3 * 60)
-        }
-        make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
-        self.assertEqual(500 * 5 * 60, len(waveform_type_to_waveform["II"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["II"] == 1))
-        self.assertEqual(125 * 5 * 60, len(waveform_type_to_waveform["Pleth"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"][:125 * 1 * 60] == NULL_WAVEFORM_VALUE))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"][125 * 1 * 60:125 * 4 * 60] == 1))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"][125 * 4 * 60:] == NULL_WAVEFORM_VALUE))
-
-
-        # II   :     ---
-        # Pleth:   -------
-        waveform_type_to_times = {
-            "II": {
-                "start": self.localize_iso_time("2000-10-21T13:40:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:45:00Z")
-            },
-            "Pleth": {
-                "start": self.localize_iso_time("2000-10-21T13:39:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:46:00Z")
-            }
-        }
-        waveform_type_to_waveform = {
-            "II": np.ones(500 * 5 * 60),
-            "Pleth": np.ones(125 * 7 * 60)
-        }
-        make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
-        self.assertEqual(500 * 5 * 60, len(waveform_type_to_waveform["II"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["II"] == 1))
-        self.assertEqual(125 * 5 * 60, len(waveform_type_to_waveform["Pleth"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"] == 1))
-
-
-        # II   :  ---
-        # Pleth:    ---
-        waveform_type_to_times = {
-            "II": {
-                "start": self.localize_iso_time("2000-10-21T13:40:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:45:00Z")
-            },
-            "Pleth": {
-                "start": self.localize_iso_time("2000-10-21T13:44:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:49:00Z")
-            }
-        }
-        waveform_type_to_waveform = {
-            "II": np.ones(500 * 5 * 60),
-            "Pleth": np.ones(125 * 5 * 60)
-        }
-        make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
-        self.assertEqual(500 * 5 * 60, len(waveform_type_to_waveform["II"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["II"] == 1))
-        self.assertEqual(125 * 5 * 60, len(waveform_type_to_waveform["Pleth"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"][:125 * 4 * 60] == NULL_WAVEFORM_VALUE))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"][125 * 4 * 60:] == 1))
-
-        # II   :  ---
-        # Pleth:      ---
-        waveform_type_to_times = {
-            "II": {
-                "start": self.localize_iso_time("2000-10-21T13:40:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:45:00Z")
-            },
-            "Pleth": {
-                "start": self.localize_iso_time("2000-10-21T13:46:00Z"),
-                "end": self.localize_iso_time("2000-10-21T13:51:00Z")
-            }
-        }
-        waveform_type_to_waveform = {
-            "II": np.ones(500 * 5 * 60),
-            "Pleth": np.ones(125 * 5 * 60)
-        }
-        make_waveform_lengths_consistent(waveform_type_to_times, waveform_to_metadata, waveform_type_to_waveform)
-        self.assertEqual(500 * 5 * 60, len(waveform_type_to_waveform["II"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["II"] == 1))
-        self.assertEqual(125 * 5 * 60, len(waveform_type_to_waveform["Pleth"]))
-        self.assertTrue(np.all(waveform_type_to_waveform["Pleth"] == NULL_WAVEFORM_VALUE))
-
     def test_process_study_inconsistent(self):
         study_to_study_folder = {
             "STUDY-000002": "resources/STUDY-000002",
@@ -408,7 +260,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -473,7 +325,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -592,7 +444,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -645,7 +497,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -697,7 +549,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -760,7 +612,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -807,7 +659,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -872,7 +724,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -942,7 +794,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -1011,7 +863,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])
@@ -1084,7 +936,7 @@ class TestConsolidate(unittest.TestCase):
         output_dir = "output"
         input_args = [
             curr_patient_index, total_patients, SAMPLE_PATIENT_ID, studies, patient_to_actual_times, patient_to_row,
-            study_to_info, study_to_study_folder, output_dir
+            study_to_info, study_to_study_folder, output_dir, None, None
         ]
         obj = process_study(input_args)
         self.assertEqual(SAMPLE_PATIENT_ID, obj["patient_id"])

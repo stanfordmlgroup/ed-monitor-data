@@ -32,6 +32,7 @@ from concurrent import futures
 from pathlib import Path
 from decimal import *
 
+import boto3
 import h5py
 import numpy as np
 import pandas as pd
@@ -550,7 +551,7 @@ def format_time_jumps(time_jumps):
 
 
 def process_study(input_args):
-    curr_patient_index, total_patients, patient_id, unsorted_studies, patient_to_actual_times, patient_to_row, study_to_info, study_to_study_folder, output_dir = input_args
+    curr_patient_index, total_patients, patient_id, unsorted_studies, patient_to_actual_times, patient_to_row, study_to_info, study_to_study_folder, output_dir, s3_bucket, s3_upload_path = input_args
     min_start = None
     max_end = None
 
@@ -761,6 +762,12 @@ def process_study(input_args):
                 dset.create_dataset(w, data=waveform)
                 dset_time_jumps.create_dataset(w, data=format_time_jumps(waveform_type_to_times[w]["time_jumps"]))
 
+        if s3_bucket is not None and s3_upload_path is not None:
+            s3 = boto3.client('s3')
+            s3_patient_output_path = os.path.join(s3_upload_path, str(patient_id)[-2:])
+            s3_save_path = os.path.join(s3_patient_output_path, f"{patient_id}.h5")
+            with open(output_save_path, "rb") as f:
+                s3.upload_fileobj(f, s3_bucket, s3_save_path)
 
         # Return patient summary
         #
@@ -792,7 +799,7 @@ def process_study(input_args):
         return None
 
 
-def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir, csns_to_ignore, limit):
+def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir, s3_bucket, s3_upload_path, limit):
     patient_id_to_results = {}
     
     print(f"Using WAVEFORM_TYPES = {WAVEFORM_TYPES}")
@@ -804,17 +811,13 @@ def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row,
             i += 1
             if limit is not None and i > limit:
                 break
-
-            if int(patient_id) in csns_to_ignore:
-                print(f"[{patient_id}] ignored as it was already processed")
-                continue
             
             if patient_id not in patient_to_actual_times:
                 print(f"[{patient_id}] skipped because it was not in the mapping file or is not valid")
                 continue
 
             input_args = [i, len(patient_to_studies), patient_id, studies, patient_to_actual_times,
-                          patient_to_row, study_to_info, study_to_study_folder, output_dir]
+                          patient_to_row, study_to_info, study_to_study_folder, output_dir, s3_bucket, s3_upload_path]
             future = executor.submit(process_study, input_args)
             fs.append(future)
 
@@ -914,7 +917,7 @@ def load_exports_file(exports_file):
     return patient_to_studies, study_to_info, study_to_study_folder
 
 
-def write_output_file(patient_id_to_results, df_continue_from, output_file):
+def write_output_file(patient_id_to_results, output_file):
     with open(output_file, "w") as f:
         writer = csv.writer(f, delimiter=',', quotechar='"')
         headers = ["patient_id", "roomed_time", "dispo_time", "waveform_start_time", "waveform_end_time", "visit_length_sec", "data_length_sec",
@@ -939,20 +942,6 @@ def write_output_file(patient_id_to_results, df_continue_from, output_file):
 
         if DEBUG:
             print(headers)
-
-        if df_continue_from is not None:
-            # Write out all the rows from the previous run
-            col_to_col_idx = {}
-            for k, col in enumerate(df_continue_from.columns):
-                col_to_col_idx[col] = k
-            for i, row in df_continue_from.iterrows():
-                new_row = []
-                for header in headers:
-                    if header in col_to_col_idx:
-                        new_row.append(row[col_to_col_idx[header]])
-                    else:
-                        new_row.append("")
-                writer.writerow(new_row)
 
         for k, v in patient_id_to_results.items():
             visit_length_sec = (v["dispo_time"] - v["roomed_time"]).total_seconds()
@@ -1002,9 +991,14 @@ if __name__ == '__main__':
                         required=False,
                         default=None,
                         help='The path to the consolidated summary file from a previous run (saves time if running again)')
-    parser.add_argument('-elf', '--existing-log-file',
+    parser.add_argument('-s3b', '--s3-bucket',
+                        required=False,
                         default=None,
-                        help='If the script is terminated, you can pass in the log file of a previous run to have this script continue off from where it left off.')
+                        help='The S3 bucket where we want to upload the files to')
+    parser.add_argument('-s3p', '--s3-upload-path',
+                        required=False,
+                        default=None,
+                        help='Path to the S3 bucket where we want to upload the files to')
     parser.add_argument('-t', '--waveform-types',
                         required=False,
                         default=None,
@@ -1027,11 +1021,12 @@ if __name__ == '__main__':
 
     # Where the output summary should be written to
     output_file = args.output_file
-    
-    # File where we last left off
-    continue_from = args.continue_from
-    
-    existing_log_file = args.existing_log_file
+
+    # S3 bucket
+    s3_bucket = args.s3_bucket
+
+    # S3 upload path
+    s3_upload_path = args.s3_upload_path
 
     if args.waveform_types is not None:
         WAVEFORM_TYPES = set(args.waveform_types.split(","))
@@ -1042,31 +1037,9 @@ if __name__ == '__main__':
         limit = None
 
     print("=" * 30)
-    print(f"Starting data consolidation with mapping_file={mapping_file}, exports_file={exports_file}, waveform_types={WAVEFORM_TYPES}, continue_from={continue_from}, limit={limit}")
+    print(f"Starting data consolidation with mapping_file={mapping_file}, exports_file={exports_file}, waveform_types={WAVEFORM_TYPES}, s3_bucket={s3_bucket}, s3_upload_path={s3_upload_path}, limit={limit}")
     print("-" * 30)
-    
-    csns_to_ignore = set()
-    if continue_from is not None:
-        print(f"Reading continue from file {continue_from}...")
-        df_continue_from = pd.read_csv(continue_from)
-        csns_to_ignore = set(df_continue_from["patient_id"].tolist())
-        print(f"Found continue from file of shape {df_continue_from.shape} and CSNs to ignore of size {len(csns_to_ignore)}")
-    else:
-        df_continue_from = None
 
-    csns_already_processed = set()
-    if existing_log_file is not None:
-        with open(existing_log_file, "r") as f:
-            for row in f:
-                if "Starting patient processing" in row:
-                    csn = row.replace("[", "").replace("]", "").split(" ")[1].strip()
-                    csns_already_processed.add(csn)
-                    print(f"Found already processed CSN: {csn}")
-    print(f"Found {len(csns_already_processed)} csns_already_processed")
-    
-    csns_to_ignore = csns_to_ignore.union(csns_already_processed)
-    print(f"Found overall {len(csns_to_ignore)} csns_to_ignore")
-        
     patient_to_actual_times, patient_to_row = load_mapping_file(mapping_file)
     patient_to_studies, study_to_info, study_to_study_folder = load_exports_file(exports_file)
     
@@ -1078,9 +1051,9 @@ if __name__ == '__main__':
             del patient_to_studies[k]
     print(f"patient_to_studies now has {len(patient_to_actual_times)} length after removing missing or invalid keys")
 
-    patient_id_to_results = process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir, csns_to_ignore, limit)
+    patient_id_to_results = process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir, s3_bucket, s3_upload_path, limit)
 
     print("==" * 30)
-    write_output_file(patient_id_to_results, df_continue_from, output_file)
+    write_output_file(patient_id_to_results, output_file)
 
     print("DONE")
