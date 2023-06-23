@@ -747,7 +747,7 @@ def process_study(input_args):
 
         # Save output files
         #
-        if len(studies) > 0:
+        if numerics is not None or len(waveform_type_to_waveform) > 0:
             patient_output_path = os.path.join(output_dir, str(patient_id)[-2:])
             Path(patient_output_path).mkdir(parents=True, exist_ok=True)
             output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
