@@ -747,27 +747,28 @@ def process_study(input_args):
 
         # Save output files
         #
-        patient_output_path = os.path.join(output_dir, str(patient_id)[-2:])
-        Path(patient_output_path).mkdir(parents=True, exist_ok=True)
-        output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
-        with h5py.File(output_save_path, "w") as f:
-            dset = f.create_group("numerics")
-            if numerics is not None:
-                for k in numerics.keys():
-                    dset.create_dataset(k, data=numerics[k])
+        if len(studies) > 0:
+            patient_output_path = os.path.join(output_dir, str(patient_id)[-2:])
+            Path(patient_output_path).mkdir(parents=True, exist_ok=True)
+            output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
+            with h5py.File(output_save_path, "w") as f:
+                dset = f.create_group("numerics")
+                if numerics is not None:
+                    for k in numerics.keys():
+                        dset.create_dataset(k, data=numerics[k])
 
-            dset = f.create_group("waveforms")
-            dset_time_jumps = f.create_group("waveforms_time_jumps")
-            for w, waveform in waveform_type_to_waveform.items():
-                dset.create_dataset(w, data=waveform)
-                dset_time_jumps.create_dataset(w, data=format_time_jumps(waveform_type_to_times[w]["time_jumps"]))
+                dset = f.create_group("waveforms")
+                dset_time_jumps = f.create_group("waveforms_time_jumps")
+                for w, waveform in waveform_type_to_waveform.items():
+                    dset.create_dataset(w, data=waveform)
+                    dset_time_jumps.create_dataset(w, data=format_time_jumps(waveform_type_to_times[w]["time_jumps"]))
 
-        if s3_bucket is not None and s3_upload_path is not None:
-            s3 = boto3.client('s3')
-            s3_patient_output_path = os.path.join(s3_upload_path, str(patient_id)[-2:])
-            s3_save_path = os.path.join(s3_patient_output_path, f"{patient_id}.h5")
-            with open(output_save_path, "rb") as f:
-                s3.upload_fileobj(f, s3_bucket, s3_save_path)
+            if s3_bucket is not None and s3_upload_path is not None:
+                s3 = boto3.client('s3')
+                s3_patient_output_path = os.path.join(s3_upload_path, str(patient_id)[-2:])
+                s3_save_path = os.path.join(s3_patient_output_path, f"{patient_id}.h5")
+                with open(output_save_path, "rb") as f:
+                    s3.upload_fileobj(f, s3_bucket, s3_save_path)
 
         # Return patient summary
         #
