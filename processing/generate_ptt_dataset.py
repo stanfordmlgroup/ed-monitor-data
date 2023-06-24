@@ -249,7 +249,7 @@ def process_patient(input_args):
         return (csn, ptt_times, ptts)
     except Exception as e:
         print(f"[ERROR] for patient {csn} due to {e}")
-        print(traceback.format_exc())
+        # print(traceback.format_exc())
         return None
 
 
@@ -263,6 +263,11 @@ def run(input_folder, input_file, output_file, limit):
         input_file = tmp_file
 
     df = pd.read_csv(input_file)
+
+    # Only consider patient files with non-null waveforms
+    print(f"Read file {df.shape}")
+    df = df[~df["waveform_start_time"].isna()]
+    print(f"After removing null waveforms {df.shape}")
 
     fs = {}
     with futures.ThreadPoolExecutor(32) as executor:
