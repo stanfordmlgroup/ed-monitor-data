@@ -98,7 +98,7 @@ def process_patient(input_args):
                     else:
                         availability.append(0)
 
-        if output_folder.startswith("s3"):
+        if filename.startswith("s3"):
             os.remove(filename)
 
         return availability

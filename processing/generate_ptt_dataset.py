@@ -19,6 +19,9 @@ from concurrent import futures
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+import os
+import boto3
+import botocore
 import h5py
 import numpy as np
 import pandas as pd
@@ -29,6 +32,38 @@ from edm.utils.ptt import get_ptt
 
 warnings.filterwarnings("ignore")
 
+
+def parse_s3_uri(s3_uri):
+    # Remove the "s3://" prefix
+    uri_without_prefix = s3_uri[5:]
+
+    # Split the URI into bucket and key
+    bucket_end_index = uri_without_prefix.find('/')
+    bucket_name = uri_without_prefix[:bucket_end_index]
+    key = uri_without_prefix[bucket_end_index + 1:]
+
+    return bucket_name, key
+
+
+def download_s3_file(s3_uri, local_path):
+    s3_client = boto3.client('s3')
+
+    # Parse the S3 URI
+    try:
+        bucket_name, key = parse_s3_uri(s3_uri)
+    except ValueError as e:
+        print(f"Invalid S3 URI: {e}")
+        return
+
+    # Download the file
+    try:
+        s3_client.download_file(bucket_name, key, local_path)
+        print(f"File downloaded successfully to: {local_path}")
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == "404":
+            print("The object does not exist.")
+        else:
+            print(f"An error occurred while downloading the file: {e}")
 
 def get_waveform_offsets(start_time, current_time, freq, time_jumps):
     """
@@ -182,6 +217,11 @@ def process_patient(input_args):
     filename = f"{input_folder}/{str(csn)[-2:]}/{csn}.h5"
     print(f"[{datetime.now().isoformat()}] [{i}/{df.shape[0]}] Working on patient {csn} at {filename}")
     try:
+        if filename.startswith("s3"):
+            tmp_file = f"/tmp/{csn}.h5"
+            download_s3_file(filename, tmp_file)
+            filename = tmp_file
+
         with h5py.File(filename, "r") as f:
             row = df[df["patient_id"] == csn]
 
@@ -202,7 +242,10 @@ def process_patient(input_args):
             ptts, ptt_times = get_ptt_for_patient(ii, ppg, waveform_start, recommended_trim_start_sec, waveform_end, waveform_len_sec=60,
                                                   waveforms_time_jumps=waveforms_time_jumps, stride_length_sec=60)
 
-            return (csn, ptt_times, ptts)
+        if filename.startswith("s3"):
+            os.remove(filename)
+
+        return (csn, ptt_times, ptts)
     except Exception as e:
         print(f"[ERROR] for patient {csn} due to {e}")
         print(traceback.format_exc())
@@ -213,6 +256,11 @@ def run(input_folder, input_file, output_file, limit):
     """
     Runs the script given the parameters
     """
+    if input_file.startswith("s3"):
+        tmp_file = "/tmp/input.csv"
+        download_s3_file(input_file, tmp_file)
+        input_file = tmp_file
+
     df = pd.read_csv(input_file)
 
     fs = {}
