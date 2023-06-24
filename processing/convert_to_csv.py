@@ -17,7 +17,8 @@ from concurrent import futures
 from pathlib import Path
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime
+import pytz
 import h5py
 import numpy as np
 import pandas as pd
@@ -94,7 +95,7 @@ def process_patient(input_args):
                         times = np.array(f["numerics"][f"{c}-time"])
                         for i in range(len(vals)):
                             if not np.isnan(vals[i]):
-                                t = datetime.fromtimestamp(times[i], tz=timezone.tzname("America/Vancouver"))
+                                t = datetime.fromtimestamp(times[i], tz=pytz.timezone("America/Vancouver"))
                                 writer.writerow([csn, t.isoformat(), c, vals[i]])
                         availability.append(1)
                     else:
