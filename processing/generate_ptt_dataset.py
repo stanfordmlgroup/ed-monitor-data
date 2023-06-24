@@ -215,9 +215,10 @@ def process_patient(input_args):
     i, df, csn, waveform_start, input_folder, output_file = input_args
 
     filename = f"{input_folder}/{str(csn)[-2:]}/{csn}.h5"
+    original_filename = filename
     print(f"[{datetime.now().isoformat()}] [{i}/{df.shape[0]}] Working on patient {csn} at {filename}")
     try:
-        if filename.startswith("s3"):
+        if original_filename.startswith("s3"):
             tmp_file = f"/tmp/{csn}.h5"
             download_s3_file(filename, tmp_file)
             filename = tmp_file
@@ -242,7 +243,7 @@ def process_patient(input_args):
             ptts, ptt_times = get_ptt_for_patient(ii, ppg, waveform_start, recommended_trim_start_sec, waveform_end, waveform_len_sec=60,
                                                   waveforms_time_jumps=waveforms_time_jumps, stride_length_sec=60)
 
-        if filename.startswith("s3"):
+        if original_filename.startswith("s3"):
             os.remove(filename)
 
         return (csn, ptt_times, ptts)

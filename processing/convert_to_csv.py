@@ -17,7 +17,7 @@ from concurrent import futures
 from pathlib import Path
 
 import os
-import shutil
+from datetime import datetime, timezone
 import h5py
 import numpy as np
 import pandas as pd
@@ -69,11 +69,12 @@ def process_patient(input_args):
     i, tot, csn, input_folder, output_folder = input_args
 
     filename = f"{input_folder}/{str(csn)[-2:]}/{csn}.h5"
+    original_filename = filename
     print(f"[{i}/{tot}] Working on patient {csn} at {filename}")
     try:
         availability = [csn]
 
-        if filename.startswith("s3"):
+        if original_filename.startswith("s3"):
             tmp_file = f"/tmp/{csn}.h5"
             download_s3_file(filename, tmp_file)
             filename = tmp_file
@@ -81,24 +82,25 @@ def process_patient(input_args):
         with h5py.File(filename, "r") as f:
             # Folders are kept sane by outputting objects into subfolders based on last two digits of CSN
             folder_hash = str(csn)[-2:]
-            full_output_folder = f"{output_folder}/{folder_hash}/{csn}"
+            full_output_folder = f"{output_folder}/{folder_hash}"
             Path(full_output_folder).mkdir(parents=True, exist_ok=True)
 
-            for c in NUMERIC_COLUMNS:
-                with open(f"{full_output_folder}/{c}.csv", "w") as csv_file:
-                    writer = csv.writer(csv_file, delimiter=',')
-                    writer.writerow(["recorded_time", c])
+            with open(f"{full_output_folder}/{csn}.csv", "w") as csv_file:
+                writer = csv.writer(csv_file, delimiter=',')
+                writer.writerow(["csn", "recorded_time", "measure", "val"])
+                for c in NUMERIC_COLUMNS:
                     if c in f["numerics"]:
                         vals = np.array(f["numerics"][c])
                         times = np.array(f["numerics"][f"{c}-time"])
                         for i in range(len(vals)):
                             if not np.isnan(vals[i]):
-                                writer.writerow([times[i], vals[i]])
+                                t = datetime.fromtimestamp(times[i], tz=timezone.tzname("America/Vancouver"))
+                                writer.writerow([csn, t.isoformat(), c, vals[i]])
                         availability.append(1)
                     else:
                         availability.append(0)
 
-        if filename.startswith("s3"):
+        if original_filename.startswith("s3"):
             os.remove(filename)
 
         return availability
