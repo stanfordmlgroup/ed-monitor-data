@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore")
 
 def run(input_folder, input_file, output_file, limit):
     df = pd.read_csv(input_file)
-    patients = df["patient_id"].tolist()
+    patients = df["CSN"].tolist()
 
     with open(output_file, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile, delimiter=',')
