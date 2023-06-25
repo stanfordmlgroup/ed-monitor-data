@@ -243,14 +243,14 @@ def process_patient(input_args):
             ptts, ptt_times = get_ptt_for_patient(ii, ppg, waveform_start, recommended_trim_start_sec, waveform_end, waveform_len_sec=60,
                                                   waveforms_time_jumps=waveforms_time_jumps, stride_length_sec=60)
 
-        if original_filename.startswith("s3"):
-            os.remove(filename)
-
         return (csn, ptt_times, ptts)
     except Exception as e:
         print(f"[ERROR] for patient {csn} due to {e}")
         # print(traceback.format_exc())
         return None
+    finally:
+        if filename.startswith("/tmp"):
+            os.remove(filename)
 
 
 def run(input_folder, input_file, output_file, limit):
