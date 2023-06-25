@@ -35,9 +35,15 @@ def run(input_folder, input_file, output_file, limit):
 
             filename = f"{input_folder}/{str(csn)[-2:]}/{csn}.csv"
             try:
-                df_csv = pd.read_csv(filename)
-                for j, row in df_csv.iterrows():
-                    writer.writerow(row.tolist())
+                j = 0
+                with open(filename, 'r') as csvfile_read:
+                    reader = csv.reader(csvfile_read)
+                    for row in reader:
+                        # Skip writing header line
+                        if j >= 1:
+                            writer.writerow(row)
+                        j += 1
+
                 print(f"[{i}/{len(patients)}] Completed")
             except Exception as e:
                 print(f"[ERROR] for patient {csn} due to {e}")
