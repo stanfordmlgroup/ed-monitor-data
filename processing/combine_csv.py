@@ -15,7 +15,6 @@ import csv
 import warnings
 
 import pandas as pd
-from tqdm import tqdm
 
 warnings.filterwarnings("ignore")
 
@@ -24,12 +23,12 @@ def run(input_folder, input_file, output_file, limit):
     df = pd.read_csv(input_file)
     patients = df["CSN"].tolist()
 
-    with open(output_file, 'w', newline='') as csvfile:
+    with open(output_file, 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter=',')
         writer.writerow(["csn", "recorded_time", "measure", "val"])
 
         i = 0
-        for csn in tqdm(patients, disable=True):
+        for csn in patients:
             i += 1
             if limit is not None and i >= limit:
                 break
@@ -39,6 +38,7 @@ def run(input_folder, input_file, output_file, limit):
                 df_csv = pd.read_csv(filename)
                 for i, row in df_csv.iterrows():
                     writer.writerow(row.tolist())
+                print(f"[{i}/{len(patients)}] Completed")
             except Exception as e:
                 print(f"[ERROR] for patient {csn} due to {e}")
 
@@ -72,7 +72,7 @@ if __name__ == '__main__':
 
     print("=" * 30)
     print(
-        f"Starting data generation with input_dir={input_dir}, input_file={input_file}, output_file={output_file}")
+        f"Starting data generation with input_dir={input_dir}, input_file={input_file}, output_file={output_file}, limit={limit}")
     print("-" * 30)
 
     run(input_dir, input_file, output_file, limit)
