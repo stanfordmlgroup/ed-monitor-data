@@ -81,7 +81,7 @@ def process_patient(input_args):
 
 def run(input_folder, input_file, output_folder, limit):
     df = pd.read_csv(input_file)
-    patients = df["patient_id"].tolist()
+    patients = df["CSN"].tolist()
 
     fs = []
     with futures.ThreadPoolExecutor(32) as executor:
