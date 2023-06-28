@@ -19,13 +19,13 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 
-def run(input_folder, input_file, output_file, limit):
+def run(input_folder, input_file, output_file, column_order, limit):
     df = pd.read_csv(input_file)
     patients = df["CSN"].tolist()
 
     with open(output_file, 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter=',')
-        writer.writerow(["csn", "recorded_time", "measure", "val"])
+        writer.writerow(column_order.split(","))
 
         i = 0
         for csn in patients:
@@ -60,6 +60,9 @@ if __name__ == '__main__':
     parser.add_argument('-of', '--output-file',
                         required=True,
                         help='Where the output summary file is located.')
+    parser.add_argument('-co', '--column-order',
+                        default="csn,recorded_time,measure,val",
+                        help='The order of the columns as a comma separated list.')
     parser.add_argument('-p', '--max-patients',
                         default=None,
                         help='Maximum number of patients to use')
@@ -74,13 +77,15 @@ if __name__ == '__main__':
     # Where the output summary file is located
     output_file = args.output_file
 
+    column_order = args.column_order
+
     limit = int(args.max_patients) if args.max_patients is not None else None
 
     print("=" * 30)
     print(
-        f"Starting data generation with input_dir={input_dir}, input_file={input_file}, output_file={output_file}, limit={limit}")
+        f"Starting data generation with input_dir={input_dir}, input_file={input_file}, output_file={output_file}, column_order={column_order}, limit={limit}")
     print("-" * 30)
 
-    run(input_dir, input_file, output_file, limit)
+    run(input_dir, input_file, output_file, column_order, limit)
 
     print("DONE")
