@@ -33,15 +33,15 @@ def std(x):
     return np.std(x)
 
 
-def generate_grouped_df(df, col, output_col, period="1min", stat="mean"):
+def generate_grouped_df(df, col, output_col, period_min=1, stat="mean"):
     df_col = df[df["measure"] == col]
-    df_col = df_col.resample(period, origin='epoch').agg({"csn": "max", "val": stat})
+    df_col = df_col.resample(f"{period_min}min", origin='epoch').agg({"csn": "max", "val": stat})
 
     # Remove any NaN after grouping by the period
     df_col = df_col[~df_col["val"].isna()]
 
     # Add one minute so that the times represent the mean of the 1 min before this time
-    df_col.index = df_col.index + pd.Timedelta(minutes=1)
+    df_col.index = df_col.index + pd.Timedelta(minutes=period_min)
 
     df_col["measure"] = output_col
 
@@ -60,12 +60,12 @@ def process_patient(input_args):
         dfs = []
 
         for c in MEAN_NUMERIC_COLUMNS:
-            df_col = generate_grouped_df(df, c, c, period="1min", stat="mean")
+            df_col = generate_grouped_df(df, c, c, period_min=1, stat="mean")
             dfs.append(df_col)
 
-        df_col = generate_grouped_df(df, "btbRRInt_ms", "1min_HRV", period="1min", stat=std)
+        df_col = generate_grouped_df(df, "btbRRInt_ms", "1min_HRV", period_min=1, stat=std)
         dfs.append(df_col)
-        df_col = generate_grouped_df(df, "btbRRInt_ms", "5min_HRV", period="5min", stat=std)
+        df_col = generate_grouped_df(df, "btbRRInt_ms", "5min_HRV", period_min=5, stat=std)
         dfs.append(df_col)
 
         df_out = pd.concat(dfs, axis=0)
