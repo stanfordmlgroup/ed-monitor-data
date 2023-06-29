@@ -58,7 +58,7 @@ def process_patient(input_args):
     print(f"[{i}/{tot}] Working on patient {csn} at {filename}")
     try:
         df = pd.read_csv(filename, dtype={'csn': str})
-        df.index = pd.to_datetime(df["recorded_time"])
+        df = df.set_index(pd.DatetimeIndex(pd.to_datetime(df["recorded_time"], utc=True)))
 
         dfs = []
 
@@ -76,6 +76,8 @@ def process_patient(input_args):
         output_folder_path = f"{output_folder}/{str(csn)[-2:]}"
         Path(output_folder_path).mkdir(parents=True, exist_ok=True)
         output_filename = f"{output_folder_path}/{csn}.csv"
+
+        df_out.index = df_out.index.tz_convert("America/Vancouver")
         df_out.to_csv(output_filename)
 
     except Exception as e:
