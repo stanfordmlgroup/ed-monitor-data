@@ -35,6 +35,9 @@ def std(x):
 
 def generate_grouped_df(df, col, output_col, period_min=1, stat="mean"):
     df_col = df[df["measure"] == col]
+    if df_col.shape[0] == 0:
+        return df_col
+
     df_col = df_col.resample(f"{period_min}min", origin='epoch').agg({"csn": "max", "val": stat})
 
     # Remove any NaN after grouping by the period
