@@ -25,7 +25,8 @@ def run(input_folder, input_file, output_file, column_order, limit):
 
     with open(output_file, 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter=',')
-        writer.writerow(column_order.split(","))
+        headers = column_order.split(",")
+        writer.writerow(headers)
 
         i = 0
         for csn in patients:
@@ -41,7 +42,8 @@ def run(input_folder, input_file, output_file, column_order, limit):
                     for row in reader:
                         # Skip writing header line
                         if j >= 1:
-                            writer.writerow(row)
+                            # In some cases, there could be extra columns at the end which we will remove
+                            writer.writerow(row[:len(headers)])
                         j += 1
 
                 print(f"[{i}/{len(patients)}] Completed")
