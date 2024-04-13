@@ -1,0 +1,28 @@
+# Tests
+
+The unit tests for certain scripts such as consolidate_numerics_waveforms.py are not committed to the 
+public repository due to patient privacy reasons.
+
+Test cases for consolidate_numerics_waveforms.py are shown below:
+- test_load_numerics_file
+- test_get_overlap_interval
+- test_get_start_offset_time
+- test_get_end_offset_time
+- test_handle_waveform_overlap_and_gap
+- test_get_skip_waveform_seconds
+- test_process_numerics_file
+- test_process_study_inconsistent
+- test_process_study
+- test_process_study_single_study_with_uneven_waveform_lengths
+- test_process_study_single_study_with_uneven_waveform_lengths_2
+- test_process_study_single_study_with_uneven_waveform_lengths_3
+- test_process_study_single_study_with_uneven_waveform_lengths_4
+- test_process_study_single_study_with_waveform_off_by_large_amount
+- test_process_study_single_study_with_diff_sample_rate
+- test_process_study_single_study_with_no_waveforms
+- test_process_study_single_study_with_no_II_waveforms
+- test_process_study_large_gap
+- test_process_study_gap
+- test_process_study_double_study
+- test_process_study_double_empty_clock_file
+- test_process_study_with_overlapping_studies

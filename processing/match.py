@@ -54,7 +54,7 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file,
     prev_size, prev_pos_size = print_size(df, prev_size, prev_pos_size)
 
     # Remove rows where important times are Nan
-    df = df[df['Dispo_time'].notna()]
+    df = df[df['Departure_time'].notna()]
     df = df[df['Arrival_time'].notna()]
     print(f"After eliminating patients who had invalid times: {df.shape}")
     prev_size, prev_pos_size = print_size(df, prev_size, prev_pos_size)
@@ -140,8 +140,8 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file,
     for i, row in tqdm(df.iterrows()):
         roomed_time = row["Roomed_time"]
         roomed_time = datetime.datetime.strptime(roomed_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
-        dispo_time = row["Dispo_time"]
-        dispo_time = datetime.datetime.strptime(dispo_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+        departure_time = row["Departure_time"]
+        departure_time = datetime.datetime.strptime(departure_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
         bed = row["First_bed"]
         case_id = row["CSN"]
         studies = []
@@ -158,7 +158,7 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file,
         rows_found = []
         # Sort by the start time
         for start_end_time in sorted(start_end_times, key=lambda x: x[0]):
-            if roomed_time <= start_end_time[1] and dispo_time >= start_end_time[0] and bed == start_end_time[2]:
+            if roomed_time <= start_end_time[1] and departure_time >= start_end_time[0] and bed == start_end_time[2]:
                 export_row = start_time_to_export_row[start_end_time[0]][start_end_time[2]]
                 export_df_ids.append(str(export_row["final_export_df_id"]))
                 studies.append(export_row["StudyId"])

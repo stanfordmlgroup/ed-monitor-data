@@ -520,23 +520,23 @@ def get_start_offset_time(roomed_time, waveform_start):
         return roomed_time
 
 
-def get_end_offset_time(dispo_time, waveform_end):
-    if dispo_time > waveform_end:
+def get_end_offset_time(departure_time, waveform_end):
+    if departure_time > waveform_end:
         return waveform_end
-    elif dispo_time < waveform_end:
+    elif departure_time < waveform_end:
         # Ensure we return the end time is a multiple of the cycle count of 16 ms
         # 16 ms because this would be the lowest common denominator of
         # ECG 500 hz (1/500 = 2 ms), PPG 125 Hz (1/125 = 8 ms), and Resp 62.5 Hz (1/62.5 = 16 ms)
         # e.g. waveform_end = 2023-05-31T00:00:00.002Z
-        # e.g. dispo_time = 2023-05-30T23:52:00.000Z
+        # e.g. departure_time = 2023-05-30T23:52:00.000Z
         # diff = 480.002 sec
-        diff = Decimal(str(round((waveform_end - dispo_time).total_seconds(), 3)))
+        diff = Decimal(str(round((waveform_end - departure_time).total_seconds(), 3)))
         # diff = 0.701 % 0.016 = 0.013
         diff = diff % Decimal('0.016')
         # Subtract an additional cycle so that the time becomes before the dispo time
-        return dispo_time + datetime.timedelta(seconds=float(diff)) - datetime.timedelta(seconds=0.016)
+        return departure_time + datetime.timedelta(seconds=float(diff)) - datetime.timedelta(seconds=0.016)
     else:
-        return dispo_time
+        return departure_time
 
 
 def format_time_jumps(time_jumps):
@@ -560,6 +560,7 @@ def process_study(input_args):
 
         roomed_time = patient_to_actual_times[patient_id]["roomed_time"]
         dispo_time = patient_to_actual_times[patient_id]["dispo_time"]
+        departure_time = patient_to_actual_times[patient_id]["departure_time"]
 
         # Remove any duplicate studies
         unsorted_studies = list(set(unsorted_studies))
@@ -608,7 +609,7 @@ def process_study(input_args):
 
             if DEBUG:
                 print(
-                    f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Processing patient_id {patient_id} study {study} in dir {study_path} roomed_time = {roomed_time} dispo_time = {dispo_time}")
+                    f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Processing patient_id {patient_id} study {study} in dir {study_path} roomed_time = {roomed_time} departure_time = {departure_time}")
 
             if not os.path.isdir(study_path):
                 print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}] Patient {patient_id} skipped because study path not found {study_path}")
@@ -661,9 +662,9 @@ def process_study(input_args):
                     # of a second.
                     waveform_start = start_times[prefix]
                     waveform_end = end_times[prefix]
-                    if waveform_start <= dispo_time and roomed_time <= waveform_end:
+                    if waveform_start <= departure_time and roomed_time <= waveform_end:
                         start_offset_time = get_start_offset_time(roomed_time, waveform_start)
-                        end_offset_time = get_end_offset_time(dispo_time, waveform_end)
+                        end_offset_time = get_end_offset_time(departure_time, waveform_end)
 
                         start_offset = get_waveform_offset(waveform_start, start_offset_time,
                                                            sample_rate=info_obj[wave_type]["sample_rate"])
@@ -743,7 +744,7 @@ def process_study(input_args):
 
         # Extract numerics data
         #
-        numerics, pt = process_numerics_file(patient_id, study_to_study_folder, studies, roomed_time, dispo_time)
+        numerics, pt = process_numerics_file(patient_id, study_to_study_folder, studies, roomed_time, departure_time)
 
         # Save output files
         #
@@ -841,24 +842,34 @@ def load_mapping_file(mapping_file):
     patient_to_row = {}
     patient_to_actual_times = {}
     for index, row in df.iterrows():
+        if pd.isna(row["Roomed_time"]) or pd.isna(row["Arrival_time"]) or pd.isna(row["Departure_time"]):
+            continue
+
         roomed_time = datetime.datetime.strptime(row["Roomed_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
         # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
         roomed_time = pytz.timezone('America/Vancouver').localize(roomed_time)
-        if str(row["Dispo_time"]) == "nan":
-            continue
-        dispo_time = datetime.datetime.strptime(row["Dispo_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
-        # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
-        dispo_time = pytz.timezone('America/Vancouver').localize(dispo_time)
 
         arrival_time = datetime.datetime.strptime(row["Arrival_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
         # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
         arrival_time = pytz.timezone('America/Vancouver').localize(arrival_time)
 
+        departure_time = datetime.datetime.strptime(row["Departure_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+        # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
+        departure_time = pytz.timezone('America/Vancouver').localize(departure_time)
+
+        if pd.isna(row["Dispo_time"]):
+            dispo_time = ""
+        else:
+            dispo_time = datetime.datetime.strptime(row["Dispo_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+            # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
+            dispo_time = pytz.timezone('America/Vancouver').localize(dispo_time)
+
         case_id = row["CSN"]
         patient_to_actual_times[case_id] = {
             "roomed_time": roomed_time,
             "dispo_time": dispo_time,
-            "arrival_time": arrival_time
+            "arrival_time": arrival_time,
+            "departure_time": departure_time
         }
         patient_to_row[case_id] = row
 
@@ -945,7 +956,7 @@ def write_output_file(patient_id_to_results, output_file):
             print(headers)
 
         for k, v in patient_id_to_results.items():
-            visit_length_sec = (v["dispo_time"] - v["roomed_time"]).total_seconds()
+            visit_length_sec = (v["departure_time"] - v["roomed_time"]).total_seconds()
 
             if v["min_start"] is not None:
                 data_start_offset_sec = (v["roomed_time"] - v["min_start"]).total_seconds()
