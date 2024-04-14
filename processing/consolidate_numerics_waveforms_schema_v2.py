@@ -8,15 +8,10 @@ Script to consolidate all the numerics and raw waveform files into a single fold
 - Resamples all waveforms to 500Hz (to match the frequency of ECG).
 - Optionally trims out empty waveforms based on a heuristic.
 
-Each patient visit will be written out in the following format to the output folder specified:
-- 1001/
-    - info.pkl
-    - II.dat
-    - Pleth.dat
-    - Resp.dat
+Each patient visit will be written out following the version 2 of the schema
 
 Usage:
-- python -u /deep/u/tomjin/ed-monitor-data/processing/consolidate_numerics_waveforms.py -m /deep/group/ed-monitor-self-supervised/v3/matched-cohort.csv -e /deep/group/ed-monitor-self-supervised/v3/matched-export.csv -o /deep/group/ed-monitor-self-supervised/v3/patient-data -f /deep/group/ed-monitor-self-supervised/v3/consolidated.csv -l 3
+- python -u /deep/u/tomjin/ed-monitor-data/processing/consolidate_numerics_waveforms_schema_v2.py -m /deep/group/ed-monitor-self-supervised/v3/matched-cohort.csv -e /deep/group/ed-monitor-self-supervised/v3/matched-export.csv -o /deep/group/ed-monitor-self-supervised/v3/patient-data -f /deep/group/ed-monitor-self-supervised/v3/consolidated.csv -l 3
 
 """
 
@@ -88,6 +83,7 @@ NULL_WAVEFORM_VALUE = -100
 
 DEBUG = True
 
+
 COLUMNS = [
     "HR",
     "SpO2",
@@ -102,7 +98,7 @@ COLUMNS = [
 
 def load_numerics_file(study_to_study_folder, study):
     output_files = []
-
+    
     # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > starting to load numerics")
     if study in study_to_study_folder:
         folder_path = study_to_study_folder[study]
@@ -124,9 +120,11 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
     output_vals = {}
 
     for col in COLUMNS:
-        output_vals[col] = []
-        output_vals[f"{col}-time"] = []
-
+        output_vals[col] = {
+            "vals": [],
+            "times": []
+        }
+    
     # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > starting process_numerics_file")
     prev_time = None
     for study in studies:
@@ -154,20 +152,20 @@ def process_numerics_file(patient_id, study_to_study_folder, studies, start, end
                 for col in COLUMNS:
                     if col in row:
                         if isinstance(row[col], str):
-                            output_vals[col].append(float(row[col].strip()))
-                            output_vals[f"{col}-time"].append(row_time.timestamp())
+                            output_vals[col]["vals"].append(float(row[col].strip()))
+                            output_vals[col]["times"].append(row_time.timestamp())
                         elif isinstance(row[col], float) and not math.isnan(row[col]):
-                            output_vals[col].append(row[col])
-                            output_vals[f"{col}-time"].append(row_time.timestamp())
+                            output_vals[col]["vals"].append(row[col])
+                            output_vals[col]["times"].append(row_time.timestamp())
                         prev_time = row_time
             # print(f"[{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > done parsing individual file")
-
+    
     is_non_empty = False
     non_empty_len = 0
     for col in COLUMNS:
-        if len(output_vals[col]) > 0:
+        if len(output_vals[col]["vals"]) > 0:
             is_non_empty = True
-            non_empty_len = len(output_vals[col])
+            non_empty_len = len(output_vals[col]["vals"])
     if is_non_empty:
         print(f"[{patient_id}] [{os.getpid()}] [{datetime.datetime.now().isoformat()}]     > Numerics file with studies {studies} has len {non_empty_len}")
         return output_vals, patient_id
@@ -476,8 +474,8 @@ def join_waveforms(patient_id, file_metadata_list, w, available_waveforms, wavef
         final_waveform = np.concatenate((final_waveform, waveform))
         time_jumps.extend(metadata["time_jumps"])
 
-    waveform_start_time = available_start_end_times[0][0]  # Start time of first segment
-    waveform_end_time = available_start_end_times[-1][1]  # End time of last segment
+    waveform_start_time = available_start_end_times[0][0] # Start time of first segment
+    waveform_end_time = available_start_end_times[-1][1] # End time of last segment
 
     target_len_sec = (waveform_end_time - waveform_start_time).total_seconds()
     total_time_jump_sec = 0
@@ -543,8 +541,8 @@ def format_time_jumps(time_jumps):
     for tj in time_jumps:
         # tj = ((pos_1, time_1), (pos_2, time_2))
         output.append([
-            [tj[0][0], tj[0][1].timestamp()],
-            [tj[1][0], tj[1][1].timestamp()],
+            [int(tj[0][0]), tj[0][1].timestamp()],
+            [int(tj[1][0]), tj[1][1].timestamp()],
         ])
     return output
 
@@ -681,7 +679,7 @@ def process_study(input_args):
                                 "end_offset_time": end_offset_time,
                                 "filename": filename,
                                 "info": info_obj,
-                                "time_jumps": []  # these are any points in the waveform where a time jump occurred
+                                "time_jumps": [] # these are any points in the waveform where a time jump occurred
                             })
                             if DEBUG:
                                 print(
@@ -752,16 +750,36 @@ def process_study(input_args):
             Path(patient_output_path).mkdir(parents=True, exist_ok=True)
             output_save_path = os.path.join(patient_output_path, f"{patient_id}.h5")
             with h5py.File(output_save_path, "w") as f:
-                dset = f.create_group("numerics")
-                if numerics is not None:
-                    for k in numerics.keys():
-                        dset.create_dataset(k, data=numerics[k])
+                f.create_dataset("schema_version", data="2")
 
-                dset = f.create_group("waveforms")
-                dset_time_jumps = f.create_group("waveforms_time_jumps")
-                for w, waveform in waveform_type_to_waveform.items():
-                    dset.create_dataset(w, data=waveform)
-                    dset_time_jumps.create_dataset(w, data=format_time_jumps(waveform_type_to_times[w]["time_jumps"]))
+                numeric_group = f.create_group("numerics")
+                if numerics is not None:
+                    for k, v in numerics.items():
+                        k_group = numeric_group.create_group(k)
+                        k_group.create_dataset("vals", data=np.array(v["vals"]))
+                        k_group.create_dataset("times", data=np.array(v["times"]))
+
+                waveform_group = f.create_group("waveforms")
+                for waveform_type, waveform in waveform_type_to_waveform.items():
+                    k_group = waveform_group.create_group(waveform_type)
+                    time_jump_list = format_time_jumps(waveform_type_to_times[waveform_type]["time_jumps"])
+                    curr_idx = 0
+                    curr_time = waveform_start_time.timestamp()
+                    for time_jump in time_jump_list:
+                        time_jump_before = time_jump[0]
+                        time_jump_after = time_jump[1]
+
+                        v_group = k_group.create_group(datetime.datetime.fromtimestamp(curr_time, pytz.timezone("America/Vancouver")).strftime('%Y-%m-%dT%H:%M:%S%z'))
+                        v_group.create_dataset("waveform", data=waveform[curr_idx:time_jump_before[0] + 1]) # adds 1 due to the exclusive range query
+                        v_group.create_dataset("start", data=curr_time)
+                        v_group.create_dataset("end", data=time_jump_before[1])
+                        curr_idx = time_jump_after[0]
+                        curr_time = time_jump_after[1]
+
+                    v_group = k_group.create_group(datetime.datetime.fromtimestamp(curr_time, pytz.timezone("America/Vancouver")).strftime('%Y-%m-%dT%H:%M:%S%z'))
+                    v_group.create_dataset("waveform", data=waveform[curr_idx:])
+                    v_group.create_dataset("start", data=curr_time)
+                    v_group.create_dataset("end", data=waveform_end_time.timestamp())
 
             if s3_bucket is not None and s3_upload_path is not None:
                 s3 = boto3.client('s3')
@@ -788,7 +806,7 @@ def process_study(input_args):
         }
         for wt in WAVEFORM_TYPES:
             obj[wt] = 1 if wt in waveform_to_metadata else 0
-
+        
         # Print object to allow service to continue if failures occur
         print(json.dumps(obj, default=str))
 
@@ -802,7 +820,7 @@ def process_study(input_args):
 
 def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row, study_to_info, study_to_study_folder, output_dir, s3_bucket, s3_upload_path, limit):
     patient_id_to_results = {}
-
+    
     print(f"Using WAVEFORM_TYPES = {WAVEFORM_TYPES}")
 
     fs = []
@@ -812,7 +830,7 @@ def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row,
             i += 1
             if limit is not None and i > limit:
                 break
-
+            
             if patient_id not in patient_to_actual_times:
                 print(f"[{patient_id}] skipped because it was not in the mapping file or is not valid")
                 continue
@@ -825,7 +843,7 @@ def process_studies(patient_to_actual_times, patient_to_studies, patient_to_row,
     for future in futures.as_completed(fs):
         # Blocking call - wait for 1 hour for a single future to complete
         # (highly unlikely, most likely something is wrong)
-        result = future.result(timeout=60 * 60)
+        result = future.result(timeout=60*60)
         if result is not None:
             if "patient_id" in result:
                 patient_id_to_results[result["patient_id"]] = result
@@ -884,7 +902,7 @@ def load_exports_file(exports_file):
     study_to_info = {}
     study_to_patient = {}
     study_to_study_folder = {}
-
+    
     for index, row in df.iterrows():
         study = row["StudyId"]
         case = row["CSN"]
@@ -897,7 +915,7 @@ def load_exports_file(exports_file):
         start_time = start_time.astimezone(pytz.timezone('America/Vancouver'))
         end_time = datetime.datetime.strptime(end_time, '%m/%d/%y %H:%M:%S')
         end_time = end_time.astimezone(pytz.timezone('America/Vancouver'))
-
+        
         # Note:
         # - `folder_path` is expected to be in the following format: /deep/group/ed-monitor/2020_08_23_2020_09_23
         # - However, studies are actually located at: /deep/group/ed-monitor/2020_08_23_2020_09_23/data/2020_08_23_2020_09_23/STUDY-XXXXXXX
@@ -937,7 +955,7 @@ def write_output_file(patient_id_to_results, output_file):
         for wt in sorted(WAVEFORM_TYPES):
             headers.append(f"{wt}_available")
         headers.extend(["studies", "notes"])
-
+        
         # Add additional headers
         additional_headers = []
         try:
@@ -970,11 +988,11 @@ def write_output_file(patient_id_to_results, output_file):
             row = [k, str(v["roomed_time"]), str(v["dispo_time"]), waveform_start_time, waveform_end_time, visit_length_sec, v["data_length_sec"],
                    data_available_offset_sec, data_start_offset_sec, v["trim_start_sec"], v["trim_end_sec"],
                    str(v["min_start"]), str(v["max_end"])]
-
+            
             for wt in sorted(WAVEFORM_TYPES):
                 row.append(v[wt])
             row.extend([v["studies"], v["notes"]])
-
+            
             # Append the data from the original file
             for k in additional_headers:
                 row.append(v["row"][k])
@@ -1020,7 +1038,7 @@ if __name__ == '__main__':
                         help='Maximum number of patients to produce')
 
     args = parser.parse_args()
-
+    
     # Mapping file contains the original cohort information. It is primarily used here to retrieve basic information on the patient.
     mapping_file = args.mapping_file
 
@@ -1041,7 +1059,7 @@ if __name__ == '__main__':
 
     if args.waveform_types is not None:
         WAVEFORM_TYPES = set(args.waveform_types.split(","))
-
+    
     if args.limit is not None:
         limit = int(args.limit)
     else:
@@ -1053,7 +1071,7 @@ if __name__ == '__main__':
 
     patient_to_actual_times, patient_to_row = load_mapping_file(mapping_file)
     patient_to_studies, study_to_info, study_to_study_folder = load_exports_file(exports_file)
-
+    
     # Remove any patients in patient_to_actual_times but not in the patient_to_studies map
     keys = list(patient_to_studies.keys())
     print(f"patient_to_studies had {len(keys)} length originally")
