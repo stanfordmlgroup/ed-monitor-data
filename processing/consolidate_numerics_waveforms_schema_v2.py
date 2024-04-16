@@ -799,6 +799,7 @@ def process_study(input_args):
             "trim_end_sec": trim_end_sec,
             "roomed_time": roomed_time,
             "dispo_time": dispo_time,
+            "departure_time": departure_time,
             "waveform_start_time": waveform_start_time,
             "waveform_end_time": waveform_end_time,
             "notes": notes,
