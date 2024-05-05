@@ -863,24 +863,16 @@ def load_mapping_file(mapping_file):
         if pd.isna(row["Roomed_time"]) or pd.isna(row["Arrival_time"]) or pd.isna(row["Departure_time"]):
             continue
 
-        roomed_time = datetime.datetime.strptime(row["Roomed_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
-        # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
-        roomed_time = pytz.timezone('America/Vancouver').localize(roomed_time)
+        roomed_time = datetime.datetime.strptime(row["Roomed_time"], "%Y-%m-%dT%H:%M:%S%z")
 
-        arrival_time = datetime.datetime.strptime(row["Arrival_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
-        # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
-        arrival_time = pytz.timezone('America/Vancouver').localize(arrival_time)
+        arrival_time = datetime.datetime.strptime(row["Arrival_time"], "%Y-%m-%dT%H:%M:%S%z")
 
-        departure_time = datetime.datetime.strptime(row["Departure_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
-        # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
-        departure_time = pytz.timezone('America/Vancouver').localize(departure_time)
+        departure_time = datetime.datetime.strptime(row["Departure_time"], "%Y-%m-%dT%H:%M:%S%z")
 
         if pd.isna(row["Dispo_time"]):
             dispo_time = ""
         else:
-            dispo_time = datetime.datetime.strptime(row["Dispo_time"], "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
-            # While the file lists this as UTC time, david_kim@ confirmed that this is actually Pacific time
-            dispo_time = pytz.timezone('America/Vancouver').localize(dispo_time)
+            dispo_time = datetime.datetime.strptime(row["Dispo_time"], "%Y-%m-%dT%H:%M:%S%z")
 
         case_id = row["CSN"]
         patient_to_actual_times[case_id] = {

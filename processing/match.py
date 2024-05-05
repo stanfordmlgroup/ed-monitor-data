@@ -7,6 +7,8 @@ python /deep/u/tomjin/ed-monitor-data/processing/match.py -ci /deep/group/pulmon
 import argparse
 import datetime
 import os
+
+import pytz
 from tqdm import tqdm
 import pandas as pd
 import csv
@@ -120,8 +122,13 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file,
         bed_start_time = export_row["StartTime"]
         bed_end_time = export_row["EndTime"]
         bed_label = export_row["BedLabel_Transformed"]
+
+        # We localize to Pacific Time as the monitors are (at least for this study) in Pacific Time
+        # but the file does not indicate the actual timezone used
         bed_start_time = datetime.datetime.strptime(bed_start_time, "%m/%d/%y %H:%M:%S").replace(tzinfo=None)
+        bed_start_time = pytz.timezone('America/Vancouver').localize(bed_start_time)
         bed_end_time = datetime.datetime.strptime(bed_end_time, "%m/%d/%y %H:%M:%S").replace(tzinfo=None)
+        bed_end_time = pytz.timezone('America/Vancouver').localize(bed_end_time)
 
         if bed_start_time not in start_time_to_export_row:
             start_time_to_export_row[bed_start_time] = {}
@@ -139,9 +146,9 @@ def run(cohort_file, experiment_folders, cohort_output_file, export_output_file,
 
     for i, row in tqdm(df.iterrows()):
         roomed_time = row["Roomed_time"]
-        roomed_time = datetime.datetime.strptime(roomed_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+        roomed_time = datetime.datetime.strptime(roomed_time, "%Y-%m-%dT%H:%M:%S%z")
         departure_time = row["Departure_time"]
-        departure_time = datetime.datetime.strptime(departure_time, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=None)
+        departure_time = datetime.datetime.strptime(departure_time, "%Y-%m-%dT%H:%M:%S%z")
         bed = row["First_bed"]
         case_id = row["CSN"]
         studies = []
