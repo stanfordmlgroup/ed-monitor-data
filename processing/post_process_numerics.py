@@ -58,7 +58,10 @@ def process_patient(input_args):
     print(f"[{i}/{tot}] Working on patient {csn} at {filename}")
     try:
         df = pd.read_csv(filename, dtype={'csn': str})
-        df = df.set_index(pd.DatetimeIndex(pd.to_datetime(df["recorded_time"], utc=True)))
+        d1 = pd.to_datetime(df["recorded_time"], format='%Y-%m-%dT%H:%M:%S.%f%z', errors='coerce', utc=True)
+        # Some values don't have millisecond components...
+        d2 = pd.to_datetime(df["recorded_time"], format='%Y-%m-%dT%H:%M:%S%z', errors='coerce', utc=True)
+        df = df.set_index(pd.DatetimeIndex(d1.fillna(d2)))
 
         dfs = []
 
